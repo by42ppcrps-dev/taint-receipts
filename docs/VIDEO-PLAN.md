@@ -15,7 +15,7 @@ Framing (14 Oct review panel): a **recall system for published content**. Lead w
 | 0:15 | Title: Taint + Receipts. A recall system for published content, on FalkorDB. | "So we treat a wrong claim like a product recall." |
 | 0:21 | UI graph: green sources, purple claims, blue artifacts. | "Every source, every claim quoted from it, and everything we shipped on top of it." |
 | 0:31 | Click "QA bot: check receipts". Two claims go red, with reasons. | "A QA agent checks receipts. The number has to be in the quote. Thirty-five isn't. Ten thousand teams has no source at all." |
-| 0:45 | Click Correct. Red ripples hop by hop; hop counts appear. | "One correction. FalkorDB walks every DERIVED_FROM path, at any depth." |
+| 0:45 | Click Correct. Red ripples hop by hop; hop counts appear. | "One correction. FalkorDB walks every DERIVED_FROM path, up to ten hops deep." |
 | 0:55 | Recall plan panel: rows sorted by reach (Short 27,400 · landing 18,500 · X post 12,100 ...), owner and live URL per row, total reach at top. | "Then the recall plan. Every live item, who owns it, and about how many people saw it. Most-viewed first: fix the Short before the reply thread." |
 | 1:09 | Zoom on the FAQ, still blue. | "The FAQ stays clean. No path, no recall." |
 | 1:15 | Terminal: `python -m teamgraph.scale 1000 25` output: 26,004 nodes, 51,099 edges, p50 0.55 ms, recall in 15 ms. | "At twenty-six thousand nodes and ten hops, the cascade takes about half a millisecond, and the full recall plan under twenty." |

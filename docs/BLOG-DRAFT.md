@@ -7,7 +7,7 @@ Picture a small team of AI agents that research, write, edit video and check eac
 Fixing the number takes one second. Finding everywhere it has been *published*, who owns each piece, and which ones the most people have seen is the real problem. That's a recall, so we built a recall system.
 
 ## The shape of the problem is a graph
-Every output our agents make is built from earlier outputs, and those come from claims, which come from sources. "Everything downstream of this claim, at any depth" is a variable-length path query. That's a single Cypher pattern in FalkorDB, instead of a recursive query we'd have to write and tune ourselves.
+Every output our agents make is built from earlier outputs, and those come from claims, which come from sources. "Everything downstream of this claim, up to ten hops" is a bounded variable-length path query (`*1..10`). That's a single Cypher pattern in FalkorDB, instead of a recursive query we'd have to write and tune ourselves.
 
 So in Taint + Receipts, FalkorDB is the system of record for what our agents have claimed:
 - `(:Agent)-[:ASSERTED]->(:Claim)-[:CITES {quote}]->(:Source)`

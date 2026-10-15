@@ -27,13 +27,19 @@ Q = {
    OPTIONAL MATCH (c)-[r:CITES]->(s:Source)
    RETURN c.id, c.text, c.value, a.name, s.id, s.text, r.quote""",
  "flag": "MATCH (c:Claim {id:$id}) SET c.status=$status, c.reason=$reason",
- # Taint: correcting a claim taints every artifact reachable via DERIVED_FROM (any depth)
+ # Taint: correcting a claim taints every artifact reachable via DERIVED_FROM, up to 10 hops (the *1..10 bound)
  "correct": """MATCH (bad:Claim {id:$id}) SET bad.status='corrected', bad.fixed_value=$value, bad.reason=$reason
    WITH bad MATCH p=(x:Artifact)-[:DERIVED_FROM*1..10]->(bad)
    SET x.status='tainted' RETURN DISTINCT x.id, x.kind, x.title, length(p) ORDER BY length(p)""",
+ # Requeue: one redo Task per tainted artifact with a STABLE id 'redo-<artifact id>' (what briefing,
+ # hand_off and complete_task use). Re-running is idempotent and never re-adds the producer as owner
+ # of a task that was already handed off.
  "requeue": """MATCH (x:Artifact {status:'tainted'})<-[:PRODUCED]-(a:Agent)
-   MERGE (t:Task {artifact:x.id}) ON CREATE SET t.status='open', t.title='Redo '+x.title
-   MERGE (a)-[:OWNS]->(t) RETURN a.name, x.title""",
+   MERGE (t:Task {id:'redo-' + x.id}) ON CREATE SET t.artifact=x.id, t.status='open', t.title='Redo ' + x.title
+   WITH x, a, t OPTIONAL MATCH (t)<-[:OWNS]-(o:Agent)
+   WITH x, a, t, count(o) AS owners
+   FOREACH (_ IN CASE WHEN owners = 0 THEN [1] ELSE [] END | MERGE (a)-[:OWNS]->(t))
+   RETURN a.name, x.title, t.id ORDER BY t.id""",
  "why_tainted": """MATCH p=(x:Artifact {id:$id})-[:DERIVED_FROM*1..10]->(c:Claim) WHERE c.status IN ['corrected','refuted']
    OPTIONAL MATCH (c)-[r:CITES]->(s:Source)
    RETURN [n IN nodes(p) | coalesce(n.title, n.text)], c.reason, s.title, r.quote""",
@@ -80,11 +86,13 @@ class Taint:
         """Recall plan for published content: tainted artifacts, most-viewed first, with owner, live URL and est. reach."""
         rows = [dict(id=r[0], kind=r[1], title=r[2], reach=r[3], url=r[4], owner=r[5], agent=r[6]) for r in self.q("recall")]
         return dict(items=rows, total_reach=sum(r["reach"] for r in rows), live_urls=sum(1 for r in rows if r["url"]))
-    def requeue(self): return self.q("requeue")
+    def requeue(self): return [dict(agent=r[0], title=r[1], task=r[2]) for r in self.q("requeue")]
     def why(self, artifact): return [dict(path=r[0], reason=r[1], source=r[2], quote=r[3]) for r in self.q("why_tainted", id=artifact)]
     def trust(self): return [dict(agent=r[0], claims=r[1], bad=r[2], trust=('unrated' if r[3] is None else round(r[3], 2))) for r in self.q("trust")]
     def snapshot(self):
         return dict(nodes=[dict(id=r[0], label=r[1], name=r[2], status=r[3]) for r in self.q("nodes")],
                     edges=[dict(source=r[0], target=r[1], type=r[2]) for r in self.q("edges")])
 
-def connect(name="taint"): return Taint(_connect(name))
+def connect(name=None):
+    """Taint view over a graph. Default: $TEAMGRAPH_GRAPH or 'teamgraph', the same graph the MCP memory tools use."""
+    return Taint(_connect(name))

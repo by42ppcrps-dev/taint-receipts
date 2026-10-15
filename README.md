@@ -39,7 +39,7 @@ All demo data is synthetic, and reach figures are made-up estimates: a fictional
 ## Setup (local)
 ```bash
 python3 -m venv .venv && .venv/bin/pip install falkordblite falkordb "mcp[cli]" pytest
-.venv/bin/python -m pytest -q          # 15 tests
+.venv/bin/python -m pytest -q          # 16 tests (incl. MCP integration)
 .venv/bin/python -m teamgraph.scale 1000 25   # seed ~26k nodes and time the cascade
 .venv/bin/python -m teamgraph.web      # demo UI at http://localhost:8787
 .venv/bin/python -m teamgraph.mcp_server   # MCP server (stdio) for agents
@@ -49,7 +49,7 @@ python3 -m venv .venv && .venv/bin/pip install falkordblite falkordb "mcp[cli]" 
 
 MCP client config:
 ```json
-{"mcpServers":{"taint":{"command":".venv/bin/python","args":["-m","teamgraph.mcp_server"],"env":{"TEAMGRAPH_DB":"/tmp/taint.db"}}}}
+{"mcpServers":{"taint":{"command":".venv/bin/python","args":["-m","teamgraph.mcp_server"],"env":{"TEAMGRAPH_DB":"/tmp/taint.db","TEAMGRAPH_GRAPH":"teamgraph"}}}}
 ```
 MCP tools:
 - Taint tools: `assert_claim`, `register_artifact`, `check_receipts`, `correct_claim`, `recall_plan`, `requeue_tainted`, `why_tainted`, `trust_ledger`
@@ -122,34 +122,40 @@ The procedure-driven next step, episodic and semantic recall, and handoff querie
 `tests/test_teamgraph.py` covers handoffs, decision tracing with superseding, recall, procedure-driven next steps, and persistence.
 
 ## Why a graph
-"Everything downstream of this claim, at any depth" is a variable-length traversal: one Cypher pattern instead of a recursive query you'd have to write and tune yourself. A vector store finds similar text, not dependency paths. The negative result matters too: the FAQ isn't tainted because no path exists.
+"Everything downstream of this claim, up to 10 hops" is a bounded variable-length traversal (`DERIVED_FROM*1..10`): one Cypher pattern instead of a recursive query you'd have to write and tune yourself. A vector store finds similar text, not dependency paths. The negative result matters too: the FAQ isn't tainted because no path exists.
 
 Built new during Graph Hacks (event opened Oct 14, 2026 12:31 PM MDT; first commit Oct 14 2:06 PM MDT).
 
 ## Live demo
-**https://taint-receipts.lumegridai.workers.dev** — click *Receipts*, *Mark 35 h claim corrected → taint downstream*, *Recall plan*, *Why*, *Trust*. All demo data is synthetic. `POST /api/reset` re-seeds the graph.
+**https://taint-receipts.lumegridai.workers.dev** — click *Receipts*, *Mark 35 h claim corrected → taint downstream*, *Recall plan*, *Why*, *Trust*. All demo data is synthetic. It is a **shared public demo**: one sandbox graph (`taint_demo`), no login, so anyone's Reset/Correct/Re-queue affects everyone and it resets often. `POST /api/reset` re-seeds it. It is a demo only, not a multi-tenant service.
 
 ## Architecture
 ```
-browser (web/, D3 graph view)
+browser (web/, vis-network graph view + text equivalent)
    │  fetch /api/{graph,reset,receipts,correct,recall,why,trust,requeue}
    ▼
 Cloudflare Worker (worker/src) ── RESP over TCP (cloudflare:sockets) ──▶ FalkorDB Cloud
    (GRAPH.QUERY with the Cypher in teamgraph/)
 
-agents (Scout, Quill, Reel, Lens) ── MCP tools (teamgraph/) ──▶ same graph
+agents ── MCP server (teamgraph/mcp_server.py) ──▶ one graph: $TEAMGRAPH_GRAPH (default "teamgraph")
 local dev / tests ── FalkorDBLite (embedded) or falkordb/falkordb Docker
 ```
-One graph holds agents, claims, sources and artifacts. Every agent action is a Cypher write; every answer (taint set, recall plan, why-path, trust) is a Cypher read.
+In the MCP server, the memory/handoff tools and the taint tools use **one graph** (`$TEAMGRAPH_GRAPH`, default `teamgraph`): `add_source` (with `text`) feeds `check_receipts`, `register_artifact` takes `url`, `reach` and `owner` for the recall plan, and `requeue_tainted` creates `redo-<artifact>` tasks that `start_session` and `hand_off` see. `tests/test_mcp_integration.py` exercises that path end to end. The public Worker demo deliberately uses a separate sandbox graph (`taint_demo`) seeded with the synthetic story; it runs the same Cypher (generated from `teamgraph/taint.py`) but does not expose the memory tools. Every agent action is a Cypher write; every answer (taint set, recall plan, why-path, trust) is a Cypher read.
 
 ## Deploy
 See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_URL && npx wrangler deploy`. The only secret is `FALKORDB_URL`; it is never committed.
 
 ## Demo video
-- 16:9: VIDEO_URL_16x9 (to be added at submission)
-- 9:16: VIDEO_URL_9x16 (to be added at submission)
+- 16:9: TODO: YouTube URL, added once uploaded (not yet public)
+- 9:16: TODO: YouTube URL, added once uploaded (not yet public)
 
 The UI clips are real recordings of the app running against FalkorDB. Rendered files are not committed (size); the Remotion source is in `video/rm`.
+
+Rebuilding the videos (rendered MP4s, the screen recording and the voice WAVs are not committed, for size):
+1. Voice: `export LUMEGRID_GEMINI_API_KEY=...` (your own Gemini key), then `cd video && python3 tts.py`. It voices each line of `lines.json` with Gemini TTS (voice Puck) into `audio/sNN.wav`, skipping existing files, and appends one line per call to `tts-calls.log`. Copy `audio/s*.wav` to `rm/public/`, and put each WAV's duration in seconds into `durations.json` and `rm/src/durations.json`.
+2. Captions: word timings from faster-whisper (`asr.py`, `small.en`), written to `captions.json` / `rm/src/captions.json`.
+3. Screen recording: run the UI (`npx wrangler dev` in `worker/`, or `BASE=<demo URL>`), then `node capture.cjs`. Playwright (system Chrome) clicks each button in time with the narration and writes `raw/ui.webm` and `marks.json`. Convert with `ffmpeg -i raw/ui.webm -r 30 -c:v libx264 -crf 14 -pix_fmt yuv420p rm/public/ui.mp4` and copy `marks.json` to `rm/src/`. Call `POST /api/reset` afterwards.
+4. Render: `cd rm && npx remotion render src/index.ts Demo out/h.mp4` and `... Vertical out/v.mp4`, then two-pass `loudnorm` to -14 LUFS with a true-peak limiter at about -1.5 dBTP.
 
 ## AI tool use disclosure
 - **Code:** written with AI coding agents (Cursor- and Grok-based agents) under human direction; a human reviewed the architecture, security and correctness and can explain every part.

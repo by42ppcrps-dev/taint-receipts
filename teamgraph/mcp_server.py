@@ -1,7 +1,11 @@
 """MCP server: agents read/write TeamGraph memory over stdio."""
 from mcp.server.mcpserver import MCPServer as FastMCP
+import os
 from .graph import connect
-tg = connect(); tg.setup()
+# ONE graph for memory, handoffs and taint/receipts, so requeued redo tasks show up in start_session.
+# Configure with $TEAMGRAPH_GRAPH (default "teamgraph"); FalkorDB via $FALKORDB_URL, else embedded at $TEAMGRAPH_DB.
+GRAPH = os.environ.get("TEAMGRAPH_GRAPH", "teamgraph")
+tg = connect(GRAPH); tg.setup()
 mcp = FastMCP("teamgraph")
 
 @mcp.tool()
@@ -17,8 +21,10 @@ def save_procedure(name: str, trigger: str, steps: list[str]) -> str:
     """Procedural memory: ordered steps used when a task title contains `trigger`."""
     tg.procedure(name, trigger, steps); return name
 @mcp.tool()
-def add_source(id: str, title: str, url: str) -> str:
-    tg.source(id, title, url); return id
+def add_source(id: str, title: str, url: str = "", text: str = "") -> str:
+    """Add/update a Source in the shared graph. Keep `text` (the source wording): check_receipts verifies each
+    claim's quote and number against it. A URL alone cannot be checked. Empty url/text never wipes a stored value."""
+    tg.source(id, title, url, text); return id
 @mcp.tool()
 def create_task(id: str, title: str, owner: str) -> str:
     tg.agent(owner); tg.task(id, title, owner); return id
@@ -45,19 +51,22 @@ def start_session(agent: str) -> dict:
     return dict(tasks=tg.briefing(agent), next=tg.next_step(agent))
 @mcp.tool()
 def complete_task(task: str) -> str:
-    tg.complete(task); return task
+    """Mark a task (e.g. 'redo-short') done; it drops out of start_session briefings."""
+    if not tg.complete(task): raise ValueError(f"no task {task}")
+    return task
 
 from .taint import Taint
-tt = Taint(connect("taint"))
+tt = Taint(tg)  # same graph as the memory tools
 
 @mcp.tool()
 def assert_claim(agent: str, text: str, value: str, sources: list[str] = [], quote: str = "") -> str:
-    """Record an atomic claim (with the exact number) and the source quote it relies on."""
+    """Record an atomic claim (with the exact number) and the source quote it relies on. Sources must already
+    exist (add_source); check_receipts later verifies the quote against the stored source text."""
     tt.agent(agent); return tt.claim(agent, text, value, sources, quote)
 @mcp.tool()
-def register_artifact(agent: str, id: str, kind: str, title: str, derived_from: list[str]) -> str:
-    """Record an output and which claims/artifacts it was built from (DERIVED_FROM)."""
-    tt.agent(agent); return tt.artifact(agent, id, kind, title, derived_from)
+def register_artifact(agent: str, id: str, kind: str, title: str, derived_from: list[str], url: str = "", reach: int = 0, owner: str = "") -> str:
+    """Record an output, which claims/artifacts it was built from (DERIVED_FROM), and its recall metadata: public url, estimated reach, owner."""
+    tt.agent(agent); return tt.artifact(agent, id, kind, title, derived_from, url=url or None, reach=reach, owner=owner or None)
 @mcp.tool()
 def check_receipts() -> list[dict]:
     """QA: refute claims whose number is not in the cited source, or that cite nothing."""
@@ -72,8 +81,9 @@ def recall_plan() -> dict:
     return tt.recall()
 
 @mcp.tool()
-def requeue_tainted() -> list:
-    """Create redo tasks for tainted artifacts, owned by the agent that produced them."""
+def requeue_tainted() -> list[dict]:
+    """Create redo tasks for tainted artifacts, owned by the agent that produced them. Task id is stable:
+    'redo-<artifact id>', usable with start_session, hand_off and complete_task. Idempotent."""
     return tt.requeue()
 @mcp.tool()
 def why_tainted(artifact: str) -> list[dict]:

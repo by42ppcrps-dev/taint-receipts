@@ -25,7 +25,7 @@ const GX = 150, GY = 330, GW = 1030, GH = 430;
 const Graph: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
   const f = useCurrentFrame();
   const startFrom = Math.round(((M as any)[s] - LEAD) * FPS);
-  const boxW = vertical ? 1080 : 1800, cw = vertical ? 440 : GW;
+  const boxW = vertical ? 960 : 1800, cw = vertical ? 440 : GW;
   const k = boxW / cw, boxH = GH * k;
   // vertical: pan the crop window along the cascade
   const panTargets: Record<string, [number, number]> = {s04: [150, 740], s05: [150, 200], s06: [150, 740], s07: [740, 740], s08: [380, 380], s10: [740, 150], s11: [450, 450]};
@@ -35,7 +35,7 @@ const Graph: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
   const faq = s === 's08';
   const fx = (580.6 - x0) * k, fy = (533.5 - GY) * k;
   return (
-    <div style={{position: 'absolute', left: vertical ? 0 : 60, top: vertical ? 300 : 70, width: boxW, height: boxH, overflow: 'hidden', borderRadius: vertical ? 0 : 22, background: '#000', boxShadow: '0 0 0 1px #222a36'}}>
+    <div style={{position: 'absolute', left: 60, top: vertical ? 300 : 70, width: boxW, height: boxH, overflow: 'hidden', borderRadius: 22, ...(vertical ? {WebkitMaskImage: 'linear-gradient(to right, transparent 0, #000 70px, #000 calc(100% - 70px), transparent 100%)'} : {}), background: '#000', boxShadow: '0 0 0 1px #222a36'}}>
       <div style={{position: 'absolute', inset: 0, transform: `scale(${zoom})`, transformOrigin: '50% 50%'}}>
         <OffthreadVideo src={staticFile('ui.mp4')} startFrom={Math.max(0, startFrom)} muted
           style={{position: 'absolute', left: -x0 * k, top: -GY * k, width: 1920 * k, height: 1080 * k, maxWidth: 'none'}} />
@@ -59,10 +59,11 @@ const Callout: React.FC<{s: Id; v?: boolean}> = ({s, v}) => {
     case 's04': return <><Chip c={C.grn} d={30}><Dot c={C.grn} />Sources</Chip><Chip c={C.pur} d={75}><Dot c={C.pur} />Claims</Chip><Chip c={C.blue} d={130}><Dot c={C.blue} />Artifacts the bots built</Chip></>;
     case 's05': return <><Chip c={C.red} d={20}>✗ “Records for 35 hours” · said 35, source says 3.5</Chip><Chip c={C.red} d={200}>✗ “Trusted by 10000 teams” · no source cited</Chip></>;
     case 's06': { const n = Math.min(10, Math.max(0, Math.floor(interpolate(f, [25, 90], [0, 10], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}))));
-      return <><Chip c={C.red} big d={15}><span style={{fontSize: 56, fontWeight: 900, color: C.red, fontVariantNumeric: 'tabular-nums'}}>{n}</span> artifacts tainted</Chip><Chip c={C.red} big d={60}>up to <b style={{color: C.red}}>4 hops</b> deep · one Cypher query</Chip></>; }
+      return <>{v && <Chip c={C.red} d={0}>▶ “Mark ‘35 h’ claim corrected → taint everything built on it”</Chip>}<Chip c={C.red} big d={15}><span style={{fontSize: 56, fontWeight: 900, color: C.red, fontVariantNumeric: 'tabular-nums'}}>{n}</span> artifacts tainted</Chip><Chip c={C.red} big d={60}>up to <b style={{color: C.red}}>4 hops</b> deep · one Cypher query</Chip></>; }
     case 's07': { const rows: [string, string, number][] = [['YouTube Short', 'Reel', 27400], ['Landing page hero', 'Quill', 18500], ['X launch post', 'Quill', 12100], ['Link preview image', 'Quill', 9300], ['Waitlist email', 'Quill', 6400], ['Launch blog post', 'Quill', 4200], ['X reply thread', 'Quill', 1800]];
       return <div style={{background: C.panel, border: `2px solid ${C.red}`, borderRadius: 18, padding: v ? '18px 30px' : '12px 26px', width: v ? 860 : 970, boxShadow: '0 20px 60px rgba(0,0,0,.6)', opacity: pop(f, 5)}}>
-        <div style={{color: C.ink, fontSize: v ? 27 : 24, fontWeight: 800, marginBottom: 6}}>Recall plan · most-viewed first · <span style={{color: C.yel}}>79,700</span> est. reach</div>
+        <div style={{color: C.ink, fontSize: v ? 27 : 24, fontWeight: 800, marginBottom: 6}}>Recall plan · most-viewed first · <span style={{color: C.yel}}>79,700</span> synthetic est. reach</div>
+        <div style={{color: C.yel, fontSize: v ? 22 : 18, fontWeight: 700, marginBottom: 6}}>6 synthetic example URLs · synthetic demo metrics</div>
         <div style={{display: 'grid', gridTemplateColumns: v ? '1fr' : '1fr 1fr', columnGap: 34}}>{(v ? rows.slice(0, 5) : rows).map(([t, o, r], k) => { const p = pop(f, 30 + k * 14);
           return <div key={t} style={{display: 'flex', justifyContent: 'space-between', color: C.ink, fontSize: v ? 30 : 21, fontWeight: 700, padding: v ? '7px 0' : '4px 0', borderTop: '1px solid #222a36', opacity: p, transform: `translateX(${(1 - p) * 30}px)`}}>
             <span>{k + 1}. {t} <span style={{color: C.dim, fontWeight: 600}}>· {o}</span></span><span style={{color: C.yel, fontVariantNumeric: 'tabular-nums'}}>{r.toLocaleString('en-US')} est.</span></div>; })}</div></div>; }
@@ -88,14 +89,14 @@ const Hook: React.FC = () => {
 const Spread: React.FC<{vertical: boolean}> = ({vertical}) => {
   const items: [string, string][] = [['YouTube Short', '27.4k'], ['Landing page', '18.5k'], ['X post', '12.1k'], ['Link preview', '9.3k'], ['Waitlist email', '6.4k'], ['Blog post', '4.2k'], ['X thread', '1.8k']];
   return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', padding: 80}}>
-    <div style={{fontSize: 54, color: C.ink, fontWeight: 800, marginBottom: 30}}>It went live in…</div>
+    <div style={{fontSize: 54, color: C.ink, fontWeight: 800, marginBottom: 30}}>Imagine it goes live in…</div>
     <div style={{display: 'flex', flexWrap: 'wrap', justifyContent: 'center', maxWidth: vertical ? 640 : 1500}}>
       {items.map(([t, v], i) => <Chip key={t} c={C.red} big d={12 + i * 16}>{t} <span style={{color: C.yel, fontVariantNumeric: 'tabular-nums'}}>{v} views</span></Chip>)}</div>
     <div style={{fontSize: 26, color: C.dim, marginTop: 24, fontWeight: 600}}>est. reach, synthetic demo data</div></AbsoluteFill>;
 };
-const Title: React.FC = () => { const f = useCurrentFrame();
+const Title: React.FC<{vertical?: boolean}> = ({vertical}) => { const f = useCurrentFrame();
   return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', textAlign: 'center'}}>
-    <div style={{fontSize: 130, fontWeight: 900, color: C.ink, opacity: pop(f), transform: `scale(${0.9 + 0.1 * pop(f)})`}}>Taint <span style={{color: C.red}}>+</span> Receipts</div>
+    <div style={{fontSize: vertical ? 96 : 130, fontWeight: 900, color: C.ink, opacity: pop(f), transform: `scale(${0.9 + 0.1 * pop(f)})`}}>Taint <span style={{color: C.red}}>+</span> Receipts</div>
     <div style={{fontSize: 40, color: C.dim, fontWeight: 600, marginTop: 10, opacity: pop(f, 20)}}>a recall system for published content</div>
     <div style={{fontSize: 34, color: C.yel, fontWeight: 700, marginTop: 30, opacity: pop(f, 40)}}>built on FalkorDB</div></AbsoluteFill>; };
 const Code: React.FC<{vertical: boolean}> = ({vertical}) => { const f = useCurrentFrame();
@@ -144,12 +145,13 @@ const Captions: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
 const Scene: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
   const f = useCurrentFrame(); const fade = interpolate(f, [0, 8, len(s) - 6, len(s)], [0, 1, 1, s === LAST ? 1 : 0.85], {extrapolateRight: 'clamp'});
   return <AbsoluteFill style={{opacity: fade}}>
-    {s === 's01' && <Hook />}{s === 's02' && <div style={{position:'absolute',inset:0,transform: vertical ? 'scale(1.5)' : undefined}}><Spread vertical={vertical} /></div>}{s === 's03' && <Title />}
+    {s === 's01' && <Hook />}{s === 's02' && <div style={{position:'absolute',inset:0,transform: vertical ? 'scale(1.5)' : undefined}}><Spread vertical={vertical} /></div>}{s === 's03' && <Title vertical={vertical} />}
     {s === 's09' && <Bench vertical={vertical} />}{s === 's12' && <Code vertical={vertical} />}{s === 's13' && <End />}
     {UI.has(s) && <>
       {vertical && <div style={{position: 'absolute', top: 110, left: 0, right: 0, textAlign: 'center', fontSize: 64, fontWeight: 900, color: C.ink}}>Taint <span style={{color: C.red}}>+</span> Receipts</div>}
       <Graph s={s} vertical={vertical} />
-      <div style={{position: 'absolute', left: vertical ? 175 : (s === 's07' ? 860 : 40), right: vertical ? 175 : (s === 's07' ? 90 : 40), top: vertical ? (s === 's07' ? 1090 : 1390) : (s === 's07' ? 645 : 840), transform: vertical ? (s === 's07' ? 'scale(1)' : 'scale(1.3)') : undefined, transformOrigin: '50% 0', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center'}}><Callout s={s} v={vertical} /></div>
+      {!vertical && s === 's06' && <div style={{position: 'absolute', left: 110, top: 110}}><Chip c={C.red} d={0}>▶ clicked: “Mark ‘35 h’ claim corrected → taint everything built on it”</Chip></div>}
+      <div style={{position: 'absolute', left: vertical ? 175 : (s === 's07' ? 860 : 40), right: vertical ? 175 : (s === 's07' ? 90 : 40), top: vertical ? (s === 's07' ? 1090 : s === 's06' ? 1250 : 1390) : (s === 's07' ? 645 : 840), transform: vertical ? (s === 's07' ? 'scale(1)' : s === 's06' ? 'scale(1.15)' : 'scale(1.3)') : (s === 's10' ? 'scale(0.9)' : undefined), transformOrigin: '50% 0', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center'}}><Callout s={s} v={vertical} /></div>
     </>}
     <Captions s={s} vertical={vertical} />
     <Sequence from={Math.round(LEAD * FPS)}><Audio src={staticFile(`${s}.wav`)} /></Sequence>
@@ -159,5 +161,5 @@ const Scene: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
 export const Demo: React.FC<{vertical: boolean}> = ({vertical}) => (
   <AbsoluteFill style={{background: `radial-gradient(ellipse at 50% 30%, #151a26 0%, ${C.bg} 70%)`, fontFamily: FONT}}>
     {IDS.map((s) => <Sequence key={s} from={starts[s]} durationInFrames={s === LAST ? len(s) + 45 : len(s)}><Scene s={s} vertical={vertical} /></Sequence>)}
-    <div style={{position: 'absolute', right: 26, top: 18, fontSize: 18, color: '#5c6577', fontWeight: 600}}>synthetic demo data</div>
+    <div style={vertical ? {position: 'absolute', left: 0, right: 0, top: 232, textAlign: 'center'} : {position: 'absolute', right: 80, top: 44}}><span style={{display: 'inline-block', padding: '6px 16px', borderRadius: 999, background: '#3d2e00', border: '2px solid #d29922', color: C.yel, fontSize: vertical ? 24 : 20, fontWeight: 800, letterSpacing: 1}}>SYNTHETIC DEMO DATA</span></div>
   </AbsoluteFill>);
