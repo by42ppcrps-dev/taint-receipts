@@ -4,7 +4,8 @@ __pycache__/
 .pytest_cache/
 video/.asr/
 video/rm/node_modules
-video/rm/public/
+video/rm/public/*
+!video/rm/public/ui.mp4
 video/rm/out/
 video/raw/
 video/node_modules/
@@ -18,3 +19,4 @@ NOTES-prep.md
 video/audio/retake/
 video/qa/
 video/tts-calls.log
+NOTES-checklist-*.md

@@ -3,7 +3,9 @@ import json, os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .taint import connect
 from .demo_seed import seed
-T = connect("taint_demo")
+# The local demo UI uses its own sandbox graph (reset wipes it), never the agents' memory graph.
+DEMO_GRAPH = os.environ.get("TAINT_DEMO_GRAPH", "taint_demo")
+T = connect(DEMO_GRAPH)
 HTML = open(os.path.join(os.path.dirname(__file__), "..", "web", "index.html")).read()
 ACTIONS = {
  "/api/reset": lambda b: (seed(T), {"ok": 1})[1],

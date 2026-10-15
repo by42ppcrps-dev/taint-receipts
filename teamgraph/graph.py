@@ -1,7 +1,10 @@
 """TeamGraph core: all memory, handoffs and decision tracing live in FalkorDB."""
 import os, time, uuid
 
-def connect(graph="teamgraph"):
+DEFAULT_GRAPH = "teamgraph"   # override with $TEAMGRAPH_GRAPH (see README "Graphs")
+
+def connect(graph=None):
+    graph = graph or os.environ.get("TEAMGRAPH_GRAPH", DEFAULT_GRAPH)
     url = os.environ.get("FALKORDB_URL")
     if url:
         from falkordb import FalkorDB
@@ -24,7 +27,11 @@ Q = {
  "procedure": """MERGE (p:Procedure {name:$name}) SET p.trigger=$trigger WITH p
    OPTIONAL MATCH (p)-[:STEP]->(old:Step) DETACH DELETE old WITH DISTINCT p
    UNWIND range(0, size($steps)-1) AS i CREATE (p)-[:STEP {order:i}]->(:Step {text:$steps[i], order:i}) RETURN p.name""",
- "source": "MERGE (s:Source {id:$id}) SET s.title=$title, s.url=$url RETURN s.id",
+ # One Source node per id. url and text are kept (an empty argument never wipes an earlier value),
+ # so the taint tools' check_receipts can verify quotes against s.text in the same graph.
+ "source": """MERGE (s:Source {id:$id}) SET s.title=$title,
+   s.url=CASE WHEN $url = '' THEN s.url ELSE $url END, s.text=CASE WHEN $text = '' THEN s.text ELSE $text END
+   RETURN s.id, s.url, s.text""",
  "task": """MERGE (t:Task {id:$id}) SET t.title=$title, t.status=coalesce(t.status,'open')
    WITH t MATCH (a:Agent {name:$owner}) MERGE (a)-[:OWNS]->(t) RETURN t.id""",
  "handoff": """MATCH (f:Agent {name:$from_agent})-[o:OWNS]->(t:Task {id:$task}) MATCH (to:Agent {name:$to_agent})
@@ -68,7 +75,7 @@ class TeamGraph:
     def episode(self, agent, text, session="s1", task=""): return self.q("episode", agent=agent, text=text, session=session, task=task, id=_id(), ts=time.time())[0][0]
     def fact(self, subject, predicate, obj, source=""): return self.q("fact", subject=subject, predicate=predicate, object=obj, source=source, id=_id(), ts=time.time())[0][0]
     def procedure(self, name, trigger, steps): return self.q("procedure", name=name, trigger=trigger, steps=steps)
-    def source(self, id, title, url): return self.q("source", id=id, title=title, url=url)
+    def source(self, id, title, url="", text=""): return self.q("source", id=id, title=title, url=url or "", text=text or "")
     def task(self, id, title, owner): return self.q("task", id=id, title=title, owner=owner)
     def handoff(self, from_agent, to_agent, task, note):
         r = self.q("handoff", from_agent=from_agent, to_agent=to_agent, task=task, note=note, id=_id(), ts=time.time())

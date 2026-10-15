@@ -22,8 +22,14 @@ def test_why_returns_path_and_source(t):
     assert w["path"][0] == "YouTube Short" and w["path"][-1].startswith("Records for 35")
     assert w["source"].startswith("Acme Notes spec") and "3.5" in w["quote"]
 def test_requeue_goes_to_producer(t):
-    t.correct("c-battery", "3.5", "x"); owners = {(a, x) for a, x in t.requeue()}
+    t.correct("c-battery", "3.5", "x"); owners = {(r["agent"], r["title"]) for r in t.requeue()}
     assert ("Reel", "YouTube Short") in owners and ("Quill", "Launch blog post") in owners
+def test_requeue_task_ids_are_stable_and_idempotent(t):
+    t.correct("c-battery", "3.5", "x")
+    first = {r["task"] for r in t.requeue()}; second = {r["task"] for r in t.requeue()}
+    assert first == second and "redo-short" in first and all(x.startswith("redo-") for x in first)
+    n = t.g.query("MATCH (k:Task) RETURN count(k), count(DISTINCT k.id)").result_set[0]
+    assert n[0] == n[1] == len(first)            # one Task per artifact, every one with an id
 def test_trust_ledger(t):
     t.receipts(); tr = {r["agent"]: r["trust"] for r in t.trust()}
     assert tr["Scout"] == pytest.approx(0.67, abs=.01) and tr["Quill"] == 0.0 and tr["Lens"] == "unrated"

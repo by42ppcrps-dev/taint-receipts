@@ -1,6 +1,7 @@
 import { Falkor } from "./falkor.js";
 import { Q } from "./queries.js";
-const G = "taint_demo";
+// Public demo sandbox graph (synthetic, shared, reset often). Override with the DEMO_GRAPH var; never point it at agent memory.
+let G = "taint_demo";
 const NUM = /\d+(?:\.\d+)?/g;
 async function seed(db) {
   const q = (k, p) => db.query(G, Q[k], p), now = Date.now() / 1000;
@@ -42,7 +43,7 @@ async function snapshot(db) {
 const A = {
   reset: seed, receipts,
   correct: async (db, b) => (await db.query(G, Q.correct, { id: b.claim || "c-battery", value: b.value || "3.5", reason: b.reason || "decimal dropped" })).map(r => ({ id: r[0], kind: r[1], title: r[2], hops: r[3] })),
-  requeue: async db => db.query(G, Q.requeue),
+  requeue: async db => (await db.query(G, Q.requeue)).map(r => ({ agent: r[0], title: r[1], task: r[2] })),
   recall: async db => { const items = (await db.query(G, Q.recall)).map(r => ({ id: r[0], kind: r[1], title: r[2], reach: Number(r[3]), url: r[4], owner: r[5], agent: r[6] }));
     return { items, total_reach: items.reduce((a, x) => a + x.reach, 0), live_urls: items.filter(x => x.url).length }; },
   why: async (db, b) => (await db.query(G, Q.why_tainted.replace("[n IN nodes(p) | coalesce(n.title, n.text)]", "reduce(s='', n IN nodes(p) | s + coalesce(n.title, n.text) + '|~|')"), { id: b.artifact || "short" })).map(r => ({ path: String(r[0]).split("|~|").slice(0, -1), reason: r[1], source: r[2], quote: r[3] })),
@@ -51,6 +52,7 @@ const A = {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    G = env.DEMO_GRAPH || "taint_demo";
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (!env.FALKORDB_URL) return Response.json({ error: "FALKORDB_URL secret not set" }, { status: 503 });
     const db = new Falkor(env.FALKORDB_URL);
