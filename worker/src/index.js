@@ -46,7 +46,7 @@ const A = {
   recall: async db => { const items = (await db.query(G, Q.recall)).map(r => ({ id: r[0], kind: r[1], title: r[2], reach: Number(r[3]), url: r[4], owner: r[5], agent: r[6] }));
     return { items, total_reach: items.reduce((a, x) => a + x.reach, 0), live_urls: items.filter(x => x.url).length }; },
   why: async (db, b) => (await db.query(G, Q.why_tainted.replace("[n IN nodes(p) | coalesce(n.title, n.text)]", "reduce(s='', n IN nodes(p) | s + coalesce(n.title, n.text) + '|~|')"), { id: b.artifact || "short" })).map(r => ({ path: String(r[0]).split("|~|").slice(0, -1), reason: r[1], source: r[2], quote: r[3] })),
-  trust: async db => (await db.query(G, Q.trust)).map(r => ({ agent: r[0], claims: r[1], bad: Number(r[2]), trust: Math.round(Number(r[3]) * 100) / 100 })),
+  trust: async db => (await db.query(G, Q.trust)).map(r => ({ agent: r[0], claims: r[1], bad: Number(r[2]), trust: r[3] == null ? "unrated" : Math.round(Number(r[3]) * 100) / 100 })),
 };
 export default {
   async fetch(req, env) {

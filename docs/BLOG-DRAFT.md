@@ -1,10 +1,10 @@
 # Our bot read 3.5 as 35. A graph found every place it was published, biggest audience first.
 
-*Draft for the Graph Hacks blog prize. The story and data are redacted or synthetic.*
+*Draft for the Graph Hacks blog prize. The scenario below is hypothetical and all data is synthetic.*
 
-We run a small team of AI agents that research, write, edit video and check each other's work. Last month a researcher bot read "3.5 hours" as "35 hours". Nothing crashed. The number just quietly became a brief, then a blog post, a landing-page hero, a link-preview image, a Short, its captions, and an email.
+Picture a small team of AI agents that research, write, edit video and check each other's work. Now imagine a researcher bot reads "3.5 hours" as "35 hours" (a hypothetical, but the kind of slip that's easy to make). Nothing would crash. The number would just quietly become a brief, then a blog post, a landing-page hero, a link-preview image, a Short, its captions, and an email.
 
-Fixing the number took one second. Finding everywhere it had been *published*, who owned each piece, and which ones the most people had seen was the real problem. That's a recall, so we built a recall system.
+Fixing the number takes one second. Finding everywhere it has been *published*, who owns each piece, and which ones the most people have seen is the real problem. That's a recall, so we built a recall system.
 
 ## The shape of the problem is a graph
 Every output our agents make is built from earlier outputs, and those come from claims, which come from sources. "Everything downstream of this claim, at any depth" is a variable-length path query. That's a single Cypher pattern in FalkorDB, instead of a recursive query we'd have to write and tune ourselves.

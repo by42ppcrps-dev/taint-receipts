@@ -39,7 +39,7 @@ Q = {
    RETURN [n IN nodes(p) | coalesce(n.title, n.text)], c.reason, s.title, r.quote""",
  "trust": """MATCH (a:Agent) OPTIONAL MATCH (a)-[:ASSERTED]->(c:Claim)
    WITH a, count(c) AS total, sum(CASE WHEN c.status IN ['refuted','corrected'] THEN 1 ELSE 0 END) AS bad
-   RETURN a.name, total, bad, CASE WHEN total=0 THEN 1.0 ELSE toFloat(total-bad)/total END AS trust ORDER BY trust DESC""",
+   RETURN a.name, total, bad, CASE WHEN total=0 THEN null ELSE toFloat(total-bad)/total END AS trust ORDER BY trust DESC""",
  "nodes": "MATCH (n) RETURN id(n), labels(n)[0], coalesce(n.title, n.text, n.name, n.id), coalesce(n.status,'')",
  "edges": "MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r)",
 }
@@ -82,7 +82,7 @@ class Taint:
         return dict(items=rows, total_reach=sum(r["reach"] for r in rows), live_urls=sum(1 for r in rows if r["url"]))
     def requeue(self): return self.q("requeue")
     def why(self, artifact): return [dict(path=r[0], reason=r[1], source=r[2], quote=r[3]) for r in self.q("why_tainted", id=artifact)]
-    def trust(self): return [dict(agent=r[0], claims=r[1], bad=r[2], trust=round(r[3], 2)) for r in self.q("trust")]
+    def trust(self): return [dict(agent=r[0], claims=r[1], bad=r[2], trust=('unrated' if r[3] is None else round(r[3], 2))) for r in self.q("trust")]
     def snapshot(self):
         return dict(nodes=[dict(id=r[0], label=r[1], name=r[2], status=r[3]) for r in self.q("nodes")],
                     edges=[dict(source=r[0], target=r[1], type=r[2]) for r in self.q("edges")])

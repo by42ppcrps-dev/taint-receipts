@@ -104,7 +104,7 @@ Trust ledger:
 ```cypher
 MATCH (a:Agent) OPTIONAL MATCH (a)-[:ASSERTED]->(c:Claim)
 WITH a, count(c) AS total, sum(CASE WHEN c.status IN ['refuted','corrected'] THEN 1 ELSE 0 END) AS bad
-RETURN a.name, total, bad, CASE WHEN total=0 THEN 1.0 ELSE toFloat(total-bad)/total END AS trust
+RETURN a.name, total, bad, CASE WHEN total=0 THEN null ELSE toFloat(total-bad)/total END AS trust
 ```
 The procedure-driven next step, episodic and semantic recall, and handoff queries are in `teamgraph/graph.py` (dict `Q`).
 
@@ -114,7 +114,7 @@ The procedure-driven next step, episodic and semantic recall, and handoff querie
 - a 10-artifact multi-hop cascade, with the FAQ correctly untouched
 - the why-path back to the source quote
 - re-queueing to the producing agent
-- the trust ledger
+- the trust ledger (agents with zero claims show `unrated`, not 1.0)
 - the recall plan (most-viewed first, owner, reach, live-URL count)
 - seeding over 1,000 nodes and benchmarking the cascade
 - persistence across sessions
@@ -127,7 +127,7 @@ The procedure-driven next step, episodic and semantic recall, and handoff querie
 Built new during Graph Hacks (event opened Oct 14, 2026 12:31 PM MDT; first commit Oct 14 2:06 PM MDT).
 
 ## Live demo
-**https://taint-receipts.lumegridai.workers.dev** — click *Receipts*, *Correct*, *Recall plan*, *Why*, *Trust*. All demo data is synthetic. `POST /api/reset` re-seeds the graph.
+**https://taint-receipts.lumegridai.workers.dev** — click *Receipts*, *Mark 35 h claim corrected → taint downstream*, *Recall plan*, *Why*, *Trust*. All demo data is synthetic. `POST /api/reset` re-seeds the graph.
 
 ## Architecture
 ```
@@ -153,7 +153,8 @@ The UI clips are real recordings of the app running against FalkorDB. Rendered f
 
 ## AI tool use disclosure
 - **Code:** written with AI coding agents (Cursor- and Grok-based agents) under human direction; a human reviewed the architecture, security and correctness and can explain every part.
-- **Voiceover:** Google Gemini TTS (prebuilt voice), composed with Remotion and loudness-normalized.
+- **Voiceover:** Google Gemini TTS (prebuilt voice), composed with Remotion and loudness-normalized to -14 LUFS. Evidence in this repo: `video/tts.py` (the exact Gemini TTS call), `video/lines.json` (the script that was voiced) and `video/tts-calls.log` (one timestamped line per TTS call, by scene id).
+- **Demo data:** every agent, claim, source, URL (`*.example`) and reach number in the demo is synthetic. Nothing in the demo is customer or real-campaign data.
 - **The product itself** makes no LLM calls: receipts, taint, recall and trust are deterministic Cypher over FalkorDB.
 
 ## License

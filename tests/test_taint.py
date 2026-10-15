@@ -26,7 +26,7 @@ def test_requeue_goes_to_producer(t):
     assert ("Reel", "YouTube Short") in owners and ("Quill", "Launch blog post") in owners
 def test_trust_ledger(t):
     t.receipts(); tr = {r["agent"]: r["trust"] for r in t.trust()}
-    assert tr["Scout"] == pytest.approx(0.67, abs=.01) and tr["Quill"] == 0.0 and tr["Lens"] == 1.0
+    assert tr["Scout"] == pytest.approx(0.67, abs=.01) and tr["Quill"] == 0.0 and tr["Lens"] == "unrated"
 def test_persists(tmp_path):
     os.environ["TEAMGRAPH_DB"] = str(tmp_path/"p.db"); a = connect("p"); seed(a); a.correct("c-battery","3.5","x"); del a
     b = connect("p"); assert any(n["status"] == "tainted" for n in b.snapshot()["nodes"])

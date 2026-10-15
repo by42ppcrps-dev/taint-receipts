@@ -4,35 +4,42 @@
 body{margin:0;background:#0b0d12;color:#e8eaf0;font:15px/1.4 system-ui;display:flex;height:100vh}
 #g{flex:1;min-width:0;height:100vh}#side{width:380px;padding:18px;border-left:1px solid #222;overflow:auto}
 h1{font-size:22px;margin:0 0 4px}small{color:#8a93a6}button{display:block;width:100%;margin:8px 0;padding:11px;border:0;border-radius:8px;background:#1f6feb;color:#fff;font-weight:600;cursor:pointer}
-button.r{background:#d1242f}pre{white-space:pre-wrap;background:#141822;padding:10px;border-radius:8px;font-size:12.5px}
+button.r{background:#d1242f}button:disabled{opacity:.6;cursor:progress}button.busy::after{content:' · working…'}#banner{background:#3d2e00;border:1px solid #d29922;color:#ffd33d;border-radius:8px;padding:8px 10px;margin:10px 0;font-weight:700;font-size:13px}.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}#gtext{margin-top:10px}#gtext summary{cursor:pointer;color:#8a93a6}#gtext ul{font-size:12.5px;padding-left:18px}pre{white-space:pre-wrap;background:#141822;padding:10px;border-radius:8px;font-size:12.5px}
 #recall{display:none;background:#141822;border:1px solid #d1242f;border-radius:8px;padding:10px;margin:8px 0}#recall h3{margin:0 0 6px;font-size:15px}#recall table{width:100%;border-collapse:collapse;font-size:13px}#recall td{padding:4px 3px;border-top:1px solid #222a36}#recall td.n{text-align:right;font-variant-numeric:tabular-nums;color:#ffd33d;font-weight:700}#recall a{color:#58a6ff;text-decoration:none}
 .k{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 10px}
-</style></head><body><div id="g"></div><div id="side">
+</style></head><body><div id="g" role="img" aria-label="Provenance graph. A text version is in the sidebar under Graph as text."></div><div id="side">
 <h1>Taint <span style="color:#d1242f">+</span> Receipts</h1><small>One wrong number. Every place it spread. Powered by FalkorDB.</small>
+<div id="banner" role="note">SYNTHETIC DEMO DATA: all agents, claims, URLs (*.example) and reach metrics are made up for this demo.</div>
 <p><span class="k" style="background:#3fb950"></span>source<span class="k" style="background:#a371f7"></span>claim<span class="k" style="background:#58a6ff"></span>artifact<span class="k" style="background:#d1242f"></span>tainted</p>
-<button onclick="go('reset')">1 · Reset synthetic team</button>
-<button onclick="go('receipts')">2 · QA bot: check receipts</button>
-<button class="r" onclick="go('correct')">3 · Correct “35 h” → 3.5 h (cascade)</button>
-<button onclick="go('recall')">4 · Recall plan (most-viewed first)</button>
-<button onclick="go('why')">5 · Why is the Short wrong?</button>
-<button onclick="go('requeue')">6 · Re-queue redo tasks</button>
-<button onclick="go('trust')">7 · Trust ledger</button>
-<div id="recall"></div><pre id="out">Click 1 to start.</pre></div>
+<button onclick="go('reset',this)">1 · Reset synthetic team</button>
+<button onclick="go('receipts',this)">2 · QA bot: check receipts</button>
+<button class="r" onclick="go('correct',this)">3 · Mark “35 h” claim corrected → taint everything built on it</button>
+<button onclick="go('recall',this)">4 · Recall plan (most-viewed first)</button>
+<button onclick="go('why',this)">5 · Why is the Short wrong?</button>
+<button onclick="go('requeue',this)">6 · Re-queue redo tasks</button>
+<button onclick="go('trust',this)">7 · Trust ledger</button>
+<div id="recall"></div><pre id="out" aria-live="polite">Click 1 to start.</pre>
+<details id="gtext" open><summary>Graph as text (accessible equivalent)</summary><div id="gtextbody"></div></details></div>
 <script>
 function recallPanel(r){const el=document.getElementById('recall');el.style.display='block';const f=n=>n.toLocaleString('en-US');
- el.innerHTML='<h3>Recall plan · '+r.items.length+' items · est. reach '+f(r.total_reach)+' · '+r.live_urls+' live URLs</h3><table>'+r.items.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+x.title+'<br><small>'+(x.url?'<a href="'+x.url+'">'+x.url.replace(/^https?:\/\//,'')+'</a>':'not public')+'</small></td><td>'+x.owner+'</td><td class="n">'+(x.reach?f(x.reach)+' est.':'internal')+'</td></tr>').join('')+'</table>'}
+ el.innerHTML='<h3>Recall plan · '+r.items.length+' items · synthetic est. reach '+f(r.total_reach)+' · '+r.live_urls+' synthetic example URLs</h3><small>Synthetic demo metrics: reach numbers and URLs are made up.</small><table>'+r.items.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+x.title+'<br><small>'+(x.url?'<a href="'+x.url+'">'+x.url.replace(/^https?:\/\//,'')+'</a>':'not public')+'</small></td><td>'+x.owner+'</td><td class="n">'+(x.reach?f(x.reach)+' est.':'internal')+'</td></tr>').join('')+'</table>'}
 const COL={Source:'#3fb950',Claim:'#a371f7',Artifact:'#58a6ff',Agent:'#d29922',Task:'#8b949e'};
 const nodes=new vis.DataSet(),edges=new vis.DataSet();
 const net=new vis.Network(document.getElementById('g'),{nodes,edges},{layout:{hierarchical:{direction:'RL',sortMethod:'directed',levelSeparation:170,nodeSpacing:70}},physics:false,
  edges:{arrows:'to',color:'#39404d',font:{color:'#6e7681',size:9,strokeWidth:0}},nodes:{font:{color:'#e8eaf0',size:15},widthConstraint:{maximum:150},shape:'dot',size:14}});
 function color(n){if(n.status==='tainted'||n.status==='refuted'||n.status==='corrected')return '#d1242f';return COL[n.label]||'#999'}
 function color2(n){return typeof n.color==='string'?n.color:n.color.background}
-function draw(g,anim){const seen=new Set();const ag=new Set(g.nodes.filter(n=>n.label==='Agent'||n.label==='Task').map(n=>n.id));g.nodes=g.nodes.filter(n=>!ag.has(n.id));g.edges=g.edges.filter(e=>!ag.has(e.source)&&!ag.has(e.target));g.nodes.forEach(n=>{seen.add(n.id);const v={id:n.id,label:(n.name||'').slice(0,34),color:color(n),size:n.label==='Agent'?20:14};
+function draw(g,anim){textGraph(g);const seen=new Set();const ag=new Set(g.nodes.filter(n=>n.label==='Agent'||n.label==='Task').map(n=>n.id));g.nodes=g.nodes.filter(n=>!ag.has(n.id));g.edges=g.edges.filter(e=>!ag.has(e.source)&&!ag.has(e.target));g.nodes.forEach(n=>{seen.add(n.id);const v={id:n.id,label:(n.name||'').slice(0,34),color:color(n),size:n.label==='Agent'?20:14};
   const old=nodes.get(n.id);if(anim&&old&&old.color!==v.color){setTimeout(()=>nodes.update(v),(anim[n.name]||1)*450)}else nodes.update(v)});
  nodes.getIds().filter(i=>!seen.has(i)).forEach(i=>nodes.remove(i));edges.clear();g.edges.forEach((e,i)=>edges.add({id:i,from:e.source,to:e.target,title:e.type}));refit()}
+function textGraph(g){const by={};g.nodes.forEach(n=>by[n.id]=n);const st=n=>n.status?' ['+n.status+']':'';
+ const out=g.nodes.map(n=>{const ups=g.edges.filter(e=>e.source===n.id).map(e=>e.type.toLowerCase().replace(/_/g,' ')+' '+((by[e.target]||{}).name||'?'));return '<li><b>'+n.label+'</b>: '+(n.name||'')+st(n)+(ups.length?' — '+ups.join('; '):'')+'</li>'});
+ document.getElementById('gtextbody').innerHTML='<p>'+g.nodes.length+' nodes, '+g.edges.length+' edges. Tainted: '+g.nodes.filter(n=>n.status==='tainted').length+'.</p><ul>'+out.join('')+'</ul>'}
 function refit(){net.redraw();requestAnimationFrame(()=>net.fit({animation:false}))}
 window.addEventListener('resize',refit);new ResizeObserver(refit).observe(document.getElementById('g'));
-async function go(a){const body={};const r=await (await fetch('/api/'+a,{method:'POST',body:JSON.stringify(body)})).json();
+async function go(a,btn){const bs=[...document.querySelectorAll('#side button')];bs.forEach(b=>b.disabled=true);if(btn)btn.classList.add('busy');document.getElementById('out').textContent='Working…';
+ try{await run(a)}catch(e){document.getElementById('out').textContent='Error: '+e.message}finally{bs.forEach(b=>{b.disabled=false;b.classList.remove('busy')})}}
+async function run(a){const body={};const r=await (await fetch('/api/'+a,{method:'POST',body:JSON.stringify(body)})).json();if(r.error)throw new Error(r.error);
  let anim=null;if(a==='correct'){anim={};r.result.forEach(x=>anim[x.title]=x.hops)}
  if(a==='recall'){recallPanel(r.result)}else if(a==='reset'){document.getElementById('recall').style.display='none'}
  draw(r.graph,anim);if(a==='why'&&r.result[0]){const p=r.result[0].path;nodes.get().forEach(n=>{if(p.some(x=>x&&x.slice(0,34)===n.label))nodes.update({id:n.id,borderWidth:5,color:{background:color2(n),border:'#ffd33d'},size:22})})}document.getElementById('out').textContent=JSON.stringify(r.result,null,1)}
