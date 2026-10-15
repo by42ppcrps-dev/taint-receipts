@@ -1,0 +1,9 @@
+name = "taint-receipts"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+[assets]
+directory = "../web"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+# Secret: wrangler secret put FALKORDB_URL   (rediss://user:pass@host:port)

@@ -1,0 +1,15 @@
+[
+["s01","Our research bot read three point five hours as thirty-five."],
+["s02","By the time anyone noticed, it was in a Short, two posts, the landing page, its preview image, and a waitlist email. Tens of thousands of people had seen it."],
+["s03","So we treat a wrong claim like a product recall."],
+["s04","Every source, every claim quoted from it, and everything we shipped on top of it."],
+["s05","A QA agent checks receipts. The number has to be in the quote. Thirty-five isn't. Ten thousand teams has no source at all."],
+["s06","One correction. FalkorDB walks every derived-from path, at any depth."],
+["s07","Then the recall plan. Every live item, who owns it, and about how many people saw it. Most-viewed first: fix the Short before the reply thread."],
+["s08","The FAQ stays clean. No path, no recall."],
+["s09","At twenty-six thousand nodes and ten hops, the cascade takes about six tenths of a millisecond, and the full recall plan about fifteen."],
+["s10","Why is the Short wrong? Short, script, blog, brief, claim, and the exact source line."],
+["s11","Each fix goes back to whoever made it."],
+["s12","A few lines of Cypher, exposed over MCP to any agent."],
+["s13","Taint plus Receipts. One wrong number, every place it reached, biggest audience first."]
+]
