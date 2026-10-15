@@ -31,6 +31,24 @@ The v5 finals measure -14.2 LUFS integrated and -1.7 dBFS peak (ffmpeg `ebur128=
 
 A re-render uses the same inputs, but the MP4 bytes won't be identical: Chrome frame capture and the x264/AAC encoders aren't bit-for-bit deterministic. To check a render, compare it with the inputs above, not the MP4 hash.
 
+## Re-render the 9:16 cut (Shorts caption safe zone)
+
+`Vertical` (1080×1920) burns captions in at `bottom: 386`, so the caption plate ends at or above y=1536. That is the bottom of the YouTube Shorts safe area (384px up, plus 2px so the rounded corner's antialiasing stays inside the line). The previous `bottom: 110` put the caption box at about y=1810, under the Shorts chrome. Callouts on that cut sit above the caption band. The 16:9 composition is unchanged (`bottom: 40`, full 7-row recall card).
+
+The 9:16 recall card shows the **top 5** rows only: 73,700 synthetic est. reach, and 4 synthetic example URLs. It is not the full 7-row plan (that card is the 16:9 cut: 79,700 est. reach, 6 synthetic example URLs).
+
+Re-render 9:16 from the committed inputs (voice, captions, and the screen recording are unchanged; only the composition moved):
+
+```bash
+cd video
+cp audio/s*.wav rm/public/                      # ui.mp4 is already in rm/public/
+sha256sum -c RENDER-INPUTS.sha256
+cd rm && npm i                                  # remotion / @remotion/cli 4.0.535, react 18
+npx remotion render src/index.ts Vertical out/v.mp4 --browser-executable=/usr/bin/google-chrome --timeout=120000
+```
+
+Then run the same two-pass `loudnorm` as above on `out/v.mp4`. A 16:9 file rendered before this change does not need a new render.
+
 ## Recreate the inputs from scratch (optional)
 1. Voice: `export LUMEGRID_GEMINI_API_KEY=...` (your own key), delete the `audio/sNN.wav` you want to redo, then `python3 tts.py`. It voices each missing line of `lines.json` and appends `{ts, sid}` to the local `tts-calls.log` (not committed; `sanitize_tts_log.py` writes the committed `tts-calls.public.jsonl`, UTC time and scene id only). TTS output differs per call, so new WAVs won't match the committed ones.
 2. Durations: write each WAV's duration (seconds, 2 dp) to `durations.json` and copy to `rm/src/`.

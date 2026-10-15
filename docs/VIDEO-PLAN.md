@@ -27,6 +27,8 @@ Framing (14 Oct review panel): a **recall system for published content**. Lead w
 Notes:
 - Benchmark numbers on screen must come from a fresh run of `teamgraph.scale` on recording day; replace the figures above if they differ.
 - Reach numbers in the demo are synthetic estimates; the on-screen panel says "est."
+- The 9:16 recall card shows the top 5 rows only (73,700 est. reach across those rows, 4 of them have synthetic example URLs). The 16:9 card lists all 7 rows (79,700 est. reach, 6 synthetic example URLs). Narration still describes the full plan.
+- Burned-in 9:16 captions end at or above y=1536 on the 1920-tall frame (`bottom: 386`, the safe line plus 2px so the rounded plate stays inside it). The 16:9 captions stay at `bottom: 40`. Re-render the Vertical composition after this change; see `video/REBUILD.md`.
 - Recall plan is served by `POST /api/recall` (web.py and the Worker); the UI panel is button 4 in `web/index.html`.
 - v2 rendered 14 Oct 2026: `video/taint-receipts-demo-v2.mp4`, `video/taint-receipts-9x16-v2.mp4`. Fresh bench used on screen: 26,004 nodes, 51,099 edges, p50 0.62 ms, max 9.01 ms, correct+recall 14.93 ms (VO says "about six tenths of a millisecond ... about fifteen").
 

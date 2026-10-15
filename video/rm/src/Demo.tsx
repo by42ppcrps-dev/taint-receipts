@@ -9,6 +9,12 @@ const FONT = loadFont('normal', {weights: ['500', '700', '800', '900']}).fontFam
 const MONO = loadMono('normal', {weights: ['500', '700']}).fontFamily;
 const C = {bg: '#0b0d12', red: '#ff4d57', grn: '#3fb950', pur: '#a371f7', blue: '#58a6ff', yel: '#ffd33d', ink: '#e8eaf0', dim: '#8a93a6', panel: '#141822'};
 const FPS = 30, PAD = 0.6, LEAD = 0.25;
+// YouTube Shorts safe area on the 1080×1920 frame: burned-in captions must end at or above y=1536.
+// 1920-1536 = 384 sits the box on that line; +2 keeps the rounded plate's antialiasing inside it.
+const SHORTS_CAPTION_MAX_Y = 1536;
+const VERTICAL_CAPTION_BOTTOM = 1920 - SHORTS_CAPTION_MAX_Y + 2;
+// One vertical caption line is 54px * line-height 1.5. Keep callouts above that band. 16:9 positions stay put.
+const VERTICAL_CALLOUT_BOTTOM = VERTICAL_CAPTION_BOTTOM + 54 * 1.5 + 36;
 const IDS = ['s01','s02','s03','s04','s05','s06','s07','s08','s09','s10','s11','s12','s13'] as const;
 type Id = typeof IDS[number];
 const len = (s: Id) => Math.round(((D as any)[s] + PAD + LEAD) * FPS);
@@ -60,11 +66,15 @@ const Callout: React.FC<{s: Id; v?: boolean}> = ({s, v}) => {
     case 's05': return <><Chip c={C.red} d={20}>✗ “Records for 35 hours” · said 35, source says 3.5</Chip><Chip c={C.red} d={200}>✗ “Trusted by 10000 teams” · no source cited</Chip></>;
     case 's06': { const n = Math.min(10, Math.max(0, Math.floor(interpolate(f, [25, 90], [0, 10], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}))));
       return <>{v && <Chip c={C.red} d={0}>▶ “Mark ‘35 h’ claim corrected → taint everything built on it”</Chip>}<Chip c={C.red} big d={15}><span style={{fontSize: 56, fontWeight: 900, color: C.red, fontVariantNumeric: 'tabular-nums'}}>{n}</span> artifacts tainted</Chip><Chip c={C.red} big d={60}>up to <b style={{color: C.red}}>4 hops</b> deep · one Cypher query</Chip></>; }
-    case 's07': { const rows: [string, string, number][] = [['YouTube Short', 'Reel', 27400], ['Landing page hero', 'Quill', 18500], ['X launch post', 'Quill', 12100], ['Link preview image', 'Quill', 9300], ['Waitlist email', 'Quill', 6400], ['Launch blog post', 'Quill', 4200], ['X reply thread', 'Quill', 1800]];
+    case 's07': { // 4th field: that row has a synthetic example URL. Vertical draws the top 5 only, so the header counts that slice.
+      const rows: [string, string, number, boolean][] = [['YouTube Short', 'Reel', 27400, true], ['Landing page hero', 'Quill', 18500, true], ['X launch post', 'Quill', 12100, true], ['Link preview image', 'Quill', 9300, true], ['Waitlist email', 'Quill', 6400, false], ['Launch blog post', 'Quill', 4200, true], ['X reply thread', 'Quill', 1800, true]];
+      const shown = v ? rows.slice(0, 5) : rows;
+      const reach = shown.reduce((sum, row) => sum + row[2], 0);
+      const urls = shown.filter((row) => row[3]).length;
       return <div style={{background: C.panel, border: `2px solid ${C.red}`, borderRadius: 18, padding: v ? '18px 30px' : '12px 26px', width: v ? 860 : 970, boxShadow: '0 20px 60px rgba(0,0,0,.6)', opacity: pop(f, 5)}}>
-        <div style={{color: C.ink, fontSize: v ? 27 : 24, fontWeight: 800, marginBottom: 6}}>Recall plan · most-viewed first · <span style={{color: C.yel}}>79,700</span> synthetic est. reach</div>
-        <div style={{color: C.yel, fontSize: v ? 22 : 18, fontWeight: 700, marginBottom: 6}}>6 synthetic example URLs · synthetic demo metrics</div>
-        <div style={{display: 'grid', gridTemplateColumns: v ? '1fr' : '1fr 1fr', columnGap: 34}}>{(v ? rows.slice(0, 5) : rows).map(([t, o, r], k) => { const p = pop(f, 30 + k * 14);
+        <div style={{color: C.ink, fontSize: v ? 27 : 24, fontWeight: 800, marginBottom: 6}}>Recall plan · {v ? 'top 5 shown' : 'most-viewed first'} · <span style={{color: C.yel}}>{reach.toLocaleString('en-US')}</span> synthetic est. reach</div>
+        <div style={{color: C.yel, fontSize: v ? 22 : 18, fontWeight: 700, marginBottom: 6}}>{urls} synthetic example URLs · synthetic demo metrics</div>
+        <div style={{display: 'grid', gridTemplateColumns: v ? '1fr' : '1fr 1fr', columnGap: 34}}>{shown.map(([t, o, r], k) => { const p = pop(f, 30 + k * 14);
           return <div key={t} style={{display: 'flex', justifyContent: 'space-between', color: C.ink, fontSize: v ? 30 : 21, fontWeight: 700, padding: v ? '7px 0' : '4px 0', borderTop: '1px solid #222a36', opacity: p, transform: `translateX(${(1 - p) * 30}px)`}}>
             <span>{k + 1}. {t} <span style={{color: C.dim, fontWeight: 600}}>· {o}</span></span><span style={{color: C.yel, fontVariantNumeric: 'tabular-nums'}}>{r.toLocaleString('en-US')} est.</span></div>; })}</div></div>; }
     case 's08': return <><Chip c={C.grn} big d={15}>✓ FAQ page · no path to the bad claim → no recall</Chip></>;
@@ -137,7 +147,7 @@ const Captions: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
   phrases.forEach((p) => { const n = Math.ceil(p.length / MAX), sz = Math.ceil(p.length / n); for (let i = 0; i < p.length; i += sz) chunks.push(p.slice(i, i + sz)); });
   const ch = chunks.find((c, i) => t >= c[0].s - 0.1 && t < (chunks[i + 1] ? chunks[i + 1][0].s - 0.1 : c[c.length - 1].e + 0.5));
   if (!ch) return null;
-  return <div style={{position: 'absolute', left: 0, right: 0, bottom: vertical ? 110 : 40, textAlign: 'center', padding: '0 60px'}}>
+  return <div style={{position: 'absolute', left: 0, right: 0, bottom: vertical ? VERTICAL_CAPTION_BOTTOM : 40, textAlign: 'center', padding: '0 60px'}}>
     <span style={{background: 'rgba(0,0,0,.72)', padding: '10px 22px', borderRadius: 12, fontSize: vertical ? 54 : 44, fontWeight: 800, color: C.ink, lineHeight: 1.5, boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone'}}>
       {ch.map((x, i) => <span key={i} style={{color: t >= x.s ? C.ink : '#9aa3b5'}}>{x.w} </span>)}</span></div>;
 };
@@ -151,7 +161,7 @@ const Scene: React.FC<{s: Id; vertical: boolean}> = ({s, vertical}) => {
       {vertical && <div style={{position: 'absolute', top: 110, left: 0, right: 0, textAlign: 'center', fontSize: 64, fontWeight: 900, color: C.ink}}>Taint <span style={{color: C.red}}>+</span> Receipts</div>}
       <Graph s={s} vertical={vertical} />
       {!vertical && s === 's06' && <div style={{position: 'absolute', left: 110, top: 110}}><Chip c={C.red} d={0}>▶ clicked: “Mark ‘35 h’ claim corrected → taint everything built on it”</Chip></div>}
-      <div style={{position: 'absolute', left: vertical ? 175 : (s === 's07' ? 860 : 40), right: vertical ? 175 : (s === 's07' ? 90 : 40), top: vertical ? (s === 's07' ? 1090 : s === 's06' ? 1250 : 1390) : (s === 's07' ? 645 : 840), transform: vertical ? (s === 's07' ? 'scale(1)' : s === 's06' ? 'scale(1.15)' : 'scale(1.3)') : (s === 's10' ? 'scale(0.9)' : undefined), transformOrigin: '50% 0', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center'}}><Callout s={s} v={vertical} /></div>
+      <div style={{position: 'absolute', left: vertical ? 175 : (s === 's07' ? 860 : 40), right: vertical ? 175 : (s === 's07' ? 90 : 40), ...(vertical ? {bottom: VERTICAL_CALLOUT_BOTTOM, transform: s === 's06' ? 'scale(1.15)' : s === 's07' ? undefined : 'scale(1.3)', transformOrigin: '50% 100%'} : {top: s === 's07' ? 645 : 840, transform: s === 's10' ? 'scale(0.9)' : undefined, transformOrigin: '50% 0'}), display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center'}}><Callout s={s} v={vertical} /></div>
     </>}
     <Captions s={s} vertical={vertical} />
     <Sequence from={Math.round(LEAD * FPS)}><Audio src={staticFile(`${s}.wav`)} /></Sequence>
