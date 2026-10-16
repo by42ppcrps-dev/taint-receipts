@@ -163,8 +163,8 @@ In the MCP server, the memory/handoff tools and the taint tools use **one graph*
 See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_URL && npx wrangler deploy`. The only secret is `FALKORDB_URL`; it is never committed.
 
 ## Demo video
-- 16:9: **pending**. The YouTube link will be added here once the final video is uploaded and checked; until then there is no public link.
-- 9:16: **pending**, same as above.
+- 16:9: https://youtu.be/5tIi7fYVGXE
+- 9:16: https://youtube.com/shorts/ugadWb9bxSA
 
 The UI clips are real screen recordings of the app running against FalkorDB. The rendered MP4s aren't committed (size). Everything that goes into a render is: `video/rm/src` (Remotion composition, captions, timing marks, durations), `video/rm/public/ui.mp4` (the exact screen recording used), `video/audio/s01.wav`–`s13.wav` (the exact voice segments), `video/lines.json` (the narration text) and `video/RENDER-INPUTS.sha256` (hashes of all of them). See `video/REBUILD.md` for how to re-render from these files byte-for-byte inputs, or to recreate them from scratch.
 
