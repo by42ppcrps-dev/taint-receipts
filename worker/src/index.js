@@ -139,7 +139,7 @@ export default {
       return J({ result, graph: await snapshot(db) });
     } catch (e) {
       if (e instanceof Refusal) return J({ error: e.message }, 400);
-      console.log("error", name, redact(e && e.message || e));   // details stay in Worker logs; never echo internals
+      console.log("error", name, redact(e && e.message || e, env.GEMINI_API_KEY, env.FALKORDB_URL));   // details stay in Worker logs; never echo internals
       return J({ error: "internal error" }, 500);
     }
     finally { db.close(); }

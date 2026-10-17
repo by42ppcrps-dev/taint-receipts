@@ -1,6 +1,6 @@
 // Unit checks for the hardening. Bundled with esbuild (see package.json "test").
 import assert from "node:assert";
-import { guard, needsReceipt, recallPrompt, sessionPrompt, priced, act, runAgent, scrub } from "../src/agent.js";
+import { guard, needsReceipt, recallPrompt, sessionPrompt, priced, act, runAgent, scrub, redact } from "../src/agent.js";
 import { rpc, TOOLS, validate, publicError } from "../src/tools.js";
 import worker, { PUBLIC_MCP, clientIp, badLength, rateLimited, writeGate, graphIsEmpty } from "../src/index.js";
 import { withParams, lit } from "../src/falkor.js";
@@ -120,7 +120,10 @@ try {
   const finish = seen.filter(p => p && Object.hasOwn(p, "u")).pop();
   assert.ok(finish.u > 0 && finish.u < 0.01);
   globalThis.fetch = async () => { throw new Error("API key supersecret rejected"); };
-  const failed = await runAgent(bud, "g", { GEMINI_API_KEY: "supersecret", LLM_CAP_USD: "0.5" }, "session", "Lens");
+  const logs = [], origLog = console.log; console.log = (...a) => logs.push(a.join(" "));
+  let failed; try { failed = await runAgent(bud, "g", { GEMINI_API_KEY: "supersecret", LLM_CAP_USD: "0.5" }, "session", "Lens"); } finally { console.log = origLog; }
+  assert.ok(logs.length > 0 && !logs.join("\n").includes("supersecret"), "the Gemini key must never reach Worker logs");
+  assert.equal(redact("x AIzaSyA1234567890abcdefghijklmnop y"), "x [redacted] y");
   assert.equal(failed.live, false);
   assert.equal(failed.replay_reason, "the model call failed");
   assert.ok(!JSON.stringify(failed).includes("supersecret"));

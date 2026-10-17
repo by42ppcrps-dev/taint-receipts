@@ -20,8 +20,10 @@ export function priced(usage) {
   const inn = n(usage && usage.in), out = n(usage && usage.out);
   return { in: inn, out, usd: inn * PRICE_IN + out * PRICE_OUT };
 }
-export function redact(s) {
-  return String(s == null ? "" : s).replace(/rediss?:\/\/\S+/gi, "redis://redacted").slice(0, 200);
+export function redact(s, ...secrets) {
+  let out = String(s == null ? "" : s);
+  for (const k of secrets) if (k && String(k).length >= 6) out = out.split(String(k)).join("[redacted]");
+  return out.replace(/rediss?:\/\/\S+/gi, "redis://redacted").replace(/AIza[0-9A-Za-z_-]{20,}/g, "[redacted]").slice(0, 200);
 }
 // A function replacer so correction text is literal: String.replace would expand $', $& and $`.
 export function recallPrompt(correction) {
@@ -73,14 +75,14 @@ export async function runAgent(db, G, env, mode, who) {
   const cap = Number(env.LLM_CAP_USD || 0.5), t = Date.now();
   let row;
   try { row = (await run(db, META, "budget_acquire", { cap, t, gap: GAP_MS, lease: LEASE_MS }))[0]; }
-  catch (e) { console.log("budget", redact(e && e.message || e)); return replay(db, G, mode, who, "budget check failed"); }
+  catch (e) { console.log("budget", redact(e && e.message || e, env.GEMINI_API_KEY)); return replay(db, G, mode, who, "budget check failed"); }
   if (!row || Number(row[0]) !== 1) {
     const why = row && row[1];
     const msg = why === "cap" ? "demo LLM budget used up" : why === "busy" ? "another live run is in progress" : "another live run just happened (20 s cooldown)";
     return replay(db, G, mode, who, msg);
   }
   try { return await liveRun(db, G, env, mode, who, t); }
-  catch (e) { console.log("gemini", redact(e && e.message || e)); return replay(db, G, mode, who, "the model call failed"); }
+  catch (e) { console.log("gemini", redact(e && e.message || e, env.GEMINI_API_KEY)); return replay(db, G, mode, who, "the model call failed"); }
 }
 async function replay(db, G, mode, who, why) {
   const rec = mode === "recall" ? REC.recall : (REC.session[who] || { summary: "(replay) briefing only", trace: [{ tool: "start_session", args: { agent: who } }] });
