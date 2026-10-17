@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import sys
 import urllib.request
 from collections.abc import Callable
@@ -26,6 +27,35 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(HERE, "prompts.json")) as _f:
     P: JSON = json.load(_f)
 ROLES = {"Scout": "research", "Quill": "copywriting", "Reel": "video and captions", "Lens": "QA"}
+TEAM = set(ROLES)
+_FENCE = re.compile('[\x00-\x1f\x7f\u0085\u2028\u2029<>"]+')
+
+
+def untrusted(text: str, limit: int = 300) -> str:
+    """Drop characters that can leave a prompt fence or break a line. Replacement is literal, never re-parsed."""
+    return re.sub(r"\s+", " ", _FENCE.sub(" ", text)).strip()[:limit]
+
+
+def scrub(v: Any) -> Any:
+    """Tool results are data. Strip fence characters before they go back to the model."""
+    if isinstance(v, str):
+        return untrusted(v, 2000)
+    if isinstance(v, list):
+        return [scrub(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): scrub(x) for k, x in v.items()}
+    return v
+
+
+def recall_prompt(correction: str) -> str:
+    return str(P["recall"]).format(correction=untrusted(correction, 300))
+
+
+def session_prompt(agent: str) -> str:
+    safe = untrusted(agent, 32)
+    return str(P["session"]).replace("{role}", ROLES.get(agent, "team")).replace("{agent}", safe)
+
+
 RECALL_TOOLS = [
     "check_receipts",
     "claim_risk",
@@ -53,6 +83,8 @@ def guard(mode: str, who: str, name: str, a: Any) -> JSON | None:
             return {"error": f"you are {who}"}
         if name == "hand_off" and a.get("from_agent") != who:
             return {"error": f"you can only hand off your own tasks ({who})"}
+        if name == "hand_off" and a.get("to_agent") not in TEAM:
+            return {"error": "you can only hand off to Scout, Quill, Reel, or Lens"}
         if name == "remember_episode" and a.get("agent") != who:
             return {"error": f"log episodes as {who}"}
     if mode == "recall" and name == "remember_episode" and a.get("agent") != "RecallAgent":
@@ -100,7 +132,7 @@ def gemini(key: str, model: str, contents: list[JSON], decls: list[JSON]) -> JSO
     return out
 
 
-async def run(mode: str, arg: str, call_llm: LLM | None = None, log: Callable[[str], object] = print) -> JSON:
+async def run(mode: str, arg: str, call_llm: LLM | None = None, log: Callable[[str], object] = print) -> JSON:  # noqa: PLR0915
     """Run one agent ('recall' with a correction, or 'session' with an agent name).
     `call_llm(contents, decls)` can be injected (tests); default calls Gemini."""
     from mcp import ClientSession, StdioServerParameters
@@ -116,11 +148,7 @@ async def run(mode: str, arg: str, call_llm: LLM | None = None, log: Callable[[s
         def call_llm(c: list[JSON], d: list[JSON]) -> JSON:
             return gemini(api_key, model, c, d)
 
-    prompt = (
-        P["recall"].format(correction=str(arg).replace('"', " ").replace("\n", " ")[:300])
-        if mode == "recall"
-        else P["session"].format(agent=arg, role=ROLES.get(arg, "team"))
-    )
+    prompt = recall_prompt(str(arg)) if mode == "recall" else session_prompt(arg)
     allowed = RECALL_TOOLS if mode == "recall" else SESSION_TOOLS
     params = StdioServerParameters(command=sys.executable, args=["-m", "teamgraph.mcp_server"], env=dict(os.environ))
     trace: list[JSON] = []
@@ -162,7 +190,8 @@ async def run(mode: str, arg: str, call_llm: LLM | None = None, log: Callable[[s
                     out = {"error": out}
                 trace.append({"tool": c["name"], "args": c.get("args") or {}, "result": out})
                 log(f"→ {c['name']}({json.dumps(c.get('args') or {})})\n  {json.dumps(out)[:300]}")
-                parts.append({"functionResponse": {"name": c["name"], "response": out if isinstance(out, dict) else {"result": out}}})
+                safe = scrub(out)
+                parts.append({"functionResponse": {"name": c["name"], "response": safe if isinstance(safe, dict) else {"result": safe}}})
             contents.append({"role": "user", "parts": parts})
     return {"summary": "(stopped: turn limit)", "trace": trace, "usage": usage, "model": model}
 

@@ -51,7 +51,8 @@ Q = register(
    RETURN s.id, s.url, s.text""",
         "task": """MERGE (t:Task {id:$id}) SET t.title=$title, t.status=coalesce(t.status,'open')
    WITH t MATCH (a:Agent {name:$owner}) MERGE (a)-[:OWNS]->(t) RETURN t.id""",
-        "handoff": """MATCH (f:Agent {name:$from_agent})-[o:OWNS]->(t:Task {id:$task}) MATCH (to:Agent {name:$to_agent})
+        "handoff": """MATCH (f:Agent {name:$from_agent})-[o:OWNS]->(t:Task {id:$task})
+   WHERE coalesce(t.status,'open') <> 'done' MATCH (to:Agent {name:$to_agent})
    DELETE o CREATE (to)-[:OWNS]->(t)
    CREATE (h:Handoff {id:$id, note:$note, ts:$ts}) CREATE (f)-[:GAVE]->(h)-[:TO]->(to) CREATE (h)-[:FOR]->(t) RETURN h.id""",
         "decision": """MATCH (a:Agent {name:$agent}) CREATE (d:Decision {id:$id, what:$what, why:$why, ts:$ts}) CREATE (a)-[:DECIDED]->(d)

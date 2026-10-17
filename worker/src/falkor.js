@@ -11,7 +11,10 @@ export function lit(v) {
   if (Array.isArray(v)) return "[" + v.map(lit).join(",") + "]";
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "null";
   if (typeof v === "boolean") return String(v);
-  return '"' + String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  if (typeof v === "object") throw new Error("bad param");
+  // Escape \, ", and controls so a value cannot close the Cypher string or inject a newline.
+  const s = String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]/g, c => c === "\n" ? "\\n" : c === "\r" ? "\\r" : c === "\t" ? "\\t" : " ");
+  return '"' + s + '"';
 }
 export function withParams(q, p = {}) {
   const ks = Object.keys(p);

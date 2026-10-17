@@ -24,6 +24,19 @@ with open(os.path.join(os.path.dirname(__file__), "..", "web", "index.html")) as
 MAX_BODY = 4096
 
 
+def content_length(header: str | None) -> int:
+    """Reject missing, negative, and oversized lengths. read(-1) would otherwise ignore the cap."""
+    try:
+        n = int(header or 0)
+    except ValueError:
+        raise ValueError("bad") from None
+    if n < 0:
+        raise ValueError("bad")
+    if n > MAX_BODY:
+        raise ValueError("large")
+    return n
+
+
 def _reset(b: DemoRequest) -> dict[str, int]:
     seed(T)
     return {"ok": 1}
@@ -62,9 +75,12 @@ class H(BaseHTTPRequestHandler):
         self._send(200, HTML, "text/html")
 
     def do_POST(self) -> None:
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
-            return self._send(413, {"error": "request too large"})
+        try:
+            n = content_length(self.headers.get("Content-Length"))
+        except ValueError as e:
+            if str(e) == "large":
+                return self._send(413, {"error": "request too large"})
+            return self._send(400, {"error": "invalid request"})
         if self.path in ("/api/agent", "/api/session"):
             return self._send(501, {"error": "The local UI has no LLM key. Run the agent from a terminal: python -m teamgraph.agent recall / session Reel"})
         f = ACTIONS.get(self.path)
@@ -72,9 +88,9 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         try:
             b = DemoRequest.model_validate(json.loads(self.rfile.read(n) or b"{}"))
+            self._send(200, {"result": f(b), "graph": T.snapshot()})
         except (ValueError, ValidationError):
             return self._send(400, {"error": "invalid request"})
-        self._send(200, {"result": f(b), "graph": T.snapshot()})
 
     def log_message(self, *a: Any) -> None:
         pass

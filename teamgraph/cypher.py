@@ -7,6 +7,7 @@ call outside this file."""
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
@@ -43,7 +44,11 @@ def register(queries: Mapping[str, str]) -> dict[str, Query]:
 def _check(v: Param, depth: int = 0) -> None:
     if depth > 4:
         raise ValueError("parameter nesting too deep")
-    if v is None or isinstance(v, (str, int, float, bool)):
+    if isinstance(v, float):
+        if not math.isfinite(v):
+            raise ValueError("non-finite parameter")
+        return
+    if v is None or isinstance(v, (str, int, bool)):
         return
     if isinstance(v, Mapping):
         for k, x in v.items():

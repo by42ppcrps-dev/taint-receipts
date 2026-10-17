@@ -1,7 +1,7 @@
 import { Falkor } from "./falkor.js";
 import { run } from "./cypher.js";
-import { TOOLS, rpc, receipts } from "./tools.js";
-import { runAgent } from "./agent.js";
+import { TOOLS, rpc, receipts, Refusal } from "./tools.js";
+import { runAgent, redact } from "./agent.js";
 // Public demo sandbox graph (synthetic, shared, reset often). Override with the DEMO_GRAPH var; never point it at agent memory.
 let G = "taint_demo";
 const NUM = /\d+(?:\.\d+)?/g;
@@ -25,6 +25,7 @@ async function seed(db) {
     ["Quill","x2","post","X reply thread",["x1"],"https://x.example/acme/2",1800],["Quill","email","email","Waitlist email",["landing","c-price"],null,6400],
     ["Quill","faq","page","FAQ page",["c-lang","c-price"],"https://acme.example/faq",2100]];
   for (const [agent, id, kind, title, from, url, reach] of arts) { await q("artifact", { agent, id, kind, title, url, reach, owner: agent }); for (const parent of from) await q("derive", { child: id, parent }); }
+  await run(db, "taint_meta", "cap_reset");
   return { ok: 1 };
 }
 async function snapshot(db) {
@@ -36,7 +37,7 @@ const A = {
   reset: seed, receipts: db => receipts(db, G),
   correct: T("correct_claim", b => ({ claim: b.claim || "c-battery", value: b.value || "3.5", reason: b.reason || "decimal dropped" })),
   requeue: T("requeue_tainted"), recall: T("recall_plan"), trust: T("trust_ledger"),
-  risk: T("claim_risk"), chokepoints: T("chokepoints", b => ({ k: b.k || 5 })),
+  risk: T("claim_risk"), chokepoints: T("chokepoints", b => ({ k: Math.min(10, Math.max(1, Math.trunc(Number(b.k)) || 5)) })),
   why: T("why_shortest", b => ({ artifact: b.artifact || "short" })),
   why_all: T("why_tainted", b => ({ artifact: b.artifact || "short" })),
   briefing: T("start_session", b => ({ agent: b.agent || "Reel" })),
@@ -51,33 +52,66 @@ const J = (o, status = 200) => new Response(JSON.stringify(o), { status, headers
 // Read-only tools exposed to anonymous MCP clients. Writes happen only through the rate-limited /api routes.
 export const PUBLIC_MCP = ["claim_risk", "chokepoints", "recall_plan", "why_shortest", "why_tainted", "trust_ledger", "start_session", "recall"];
 const WRITES = new Set(["reset", "receipts", "correct", "requeue", "agent", "session"]);
-async function limited(env, binding, key) { try { return env[binding] ? !(await env[binding].limit({ key })).success : false; } catch { return false; } }
-async function cooldown(db, key, secs) {  // global cooldown kept in the meta graph (Reset never touches it)
-  const t = Date.now() / 1000, r = await run(db, "taint_meta", "cooldown", { k: key, t, s: secs });
-  return t - Number(r[0][0]) <= secs;
+async function cooldown(db, key, secs, now = Date.now() / 1000) {  // global cooldown kept in the meta graph (Reset never touches it)
+  const r = await run(db, "taint_meta", "cooldown", { k: key, t: now, s: secs });
+  return now - Number(r[0][0]) <= secs;
 }
 async function readBody(req) {
-  const len = Number(req.headers.get("content-length") || 0); if (len > MAX_BODY) throw new Error("413");
+  const code = badLength(req.headers.get("content-length")); if (code) throw new Error(String(code));
   const txt = await req.text(); if (txt.length > MAX_BODY) throw new Error("413");
   if (!txt) return {};
   const v = JSON.parse(txt); if (typeof v !== "object" || v === null) throw new Error("400"); return v;
 }
 const clip = (v, n = 200) => (v == null ? undefined : String(v).slice(0, n));
+// Only the edge-set CF-Connecting-IP. X-Forwarded-For and any client visitor id are not a rate-limit key.
+export function clientIp(req) {
+  const raw = (req.headers.get("cf-connecting-ip") || "").trim();
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(raw) && raw.split(".").every(n => Number(n) <= 255)) return raw;
+  if (/^[0-9a-fA-F:]{2,39}$/.test(raw) && raw.includes(":") && !raw.includes(":::")) return raw.toLowerCase();
+  return "anon";
+}
+// Only an actual zero count seeds. A failed or malformed count must not look empty: seed() wipes the graph.
+export function graphIsEmpty(rows) {
+  const n = rows && rows[0] && rows[0][0];
+  return n === 0 || n === "0";
+}
+export function badLength(header) {
+  const len = Number(header || 0);
+  if (!Number.isFinite(len) || len < 0) return 400;
+  if (len > MAX_BODY) return 413;
+  return 0;
+}
+// Missing binding (local tests) is unlimited. A failing limiter fails closed so it cannot be tripped into a bypass.
+export async function rateLimited(env, binding, key) {
+  if (!env[binding]) return false;
+  try { return !(await env[binding].limit({ key })).success; }
+  catch { return true; }
+}
+export async function writeGate(db, name, ip, now = Date.now() / 1000) {
+  // Per-IP first. Checking the global reset slot first would burn it when this IP is already in its write cooldown.
+  if (WRITES.has(name) && await cooldown(db, "w:" + ip, 1, now)) return "slow down";
+  if (name === "reset" && await cooldown(db, "reset", 15, now)) return "the demo was just reset; try again in a few seconds";
+  return null;
+}
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     G = env.DEMO_GRAPH || "taint_demo";
     if (!url.pathname.startsWith("/api/") && url.pathname !== "/mcp") return env.ASSETS.fetch(req);
     if (!env.FALKORDB_URL) return J({ error: "demo database not configured" }, 503);
-    const ip = req.headers.get("cf-connecting-ip") || "anon", name = url.pathname === "/mcp" ? "mcp" : url.pathname.slice(5);
-    if (await limited(env, "RL_API", ip)) return J({ error: "rate limited, try again in a minute" }, 429);
+    const ip = clientIp(req), name = url.pathname === "/mcp" ? "mcp" : url.pathname.slice(5);
+    if (await rateLimited(env, "RL_API", ip)) return J({ error: "rate limited, try again in a minute" }, 429);
     let body = {};
     if (req.method === "POST") {
       // JSON only: a cross-site form/text POST can't trigger writes (non-simple content type needs a CORS preflight, which we never grant).
       if (!(req.headers.get("content-type") || "").startsWith("application/json")) return J({ error: "content-type must be application/json" }, 415);
-      try { body = await readBody(req); } catch (e) { return J({ error: e.message === "413" ? "request too large" : "invalid JSON" }, e.message === "413" ? 413 : 400); }
+      try { body = await readBody(req); } catch (e) {
+        if (e.message === "413") return J({ error: "request too large" }, 413);
+        if (e.message === "400") return J({ error: "invalid request" }, 400);
+        return J({ error: "invalid JSON" }, 400);
+      }
     }
-    if ((name === "agent" || name === "session") && await limited(env, "RL_AGENT", ip)) return J({ error: "agent runs are limited to a few per minute per visitor" }, 429);
+    if ((name === "agent" || name === "session") && await rateLimited(env, "RL_AGENT", ip)) return J({ error: "agent runs are limited to a few per minute per visitor" }, 429);
     const db = new Falkor(env.FALKORDB_URL);
     try {
       await db.open();
@@ -95,17 +129,17 @@ export default {
         return J(Array.isArray(body) ? out : out[0]);
       }
       if (req.method === "GET" && name === "graph") {
-        if ((await run(db, G, "count_all").catch(() => [[0]]))[0][0] == 0) await seed(db);
+        if (graphIsEmpty(await run(db, G, "count_all"))) await seed(db);
         return J(await snapshot(db));
       }
       const f = A[name]; if (!f || req.method !== "POST") return J({ error: "not found" }, 404);
-      if (name === "reset" && await cooldown(db, "reset", 15)) return J({ error: "the demo was just reset; try again in a few seconds" }, 429);
-      if (WRITES.has(name) && await cooldown(db, "w:" + ip, 1)) return J({ error: "slow down" }, 429);
-      const b = { claim: clip(body.claim, 64), value: clip(body.value, 32), reason: clip(body.reason), artifact: clip(body.artifact, 64), agent: clip(body.agent, 16), correction: clip(body.correction, 300), k: Math.min(10, Math.max(1, Number(body.k) || 5)) };
+      const gate = await writeGate(db, name, ip); if (gate) return J({ error: gate }, 429);
+      const b = { claim: clip(body.claim, 64), value: clip(body.value, 32), reason: clip(body.reason), artifact: clip(body.artifact, 64), agent: clip(body.agent, 16), correction: clip(body.correction, 300), k: Math.min(10, Math.max(1, Math.trunc(Number(body.k)) || 5)) };
       const result = await f(db, b, env);
       return J({ result, graph: await snapshot(db) });
     } catch (e) {
-      console.log("error", name, String(e && e.message || e).slice(0, 200));   // details stay in Worker logs; never echo internals
+      if (e instanceof Refusal) return J({ error: e.message }, 400);
+      console.log("error", name, redact(e && e.message || e));   // details stay in Worker logs; never echo internals
       return J({ error: "internal error" }, 500);
     }
     finally { db.close(); }

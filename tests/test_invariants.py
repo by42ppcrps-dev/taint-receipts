@@ -69,6 +69,10 @@ def test_run_rejects_bad_params():
         run(G(), Q["flag"], {"id) DELETE n //": 1})
     with pytest.raises(TypeError):
         run(G(), Q["flag"], {"id": object()})  # type: ignore[dict-item]
+    with pytest.raises(ValueError, match="non-finite"):
+        run(G(), Q["flag"], {"id": float("nan")})
+    with pytest.raises(ValueError, match="non-finite"):
+        run(G(), Q["flag"], {"id": float("inf")})
 
 
 def test_mcp_tool_inputs_are_validated(tmp_path, monkeypatch):

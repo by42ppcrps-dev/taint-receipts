@@ -85,6 +85,8 @@ Q = register(
         "refuted_ids": "MATCH (c:Claim {status:'refuted'}) RETURN c.id",
         "cascade_one": """MATCH p=(x:Artifact)-[:DERIVED_FROM*1..10]->(:Claim {id:$id}) SET x.status='tainted'
    RETURN DISTINCT x.id, length(p)""",
+        # Quote first: a number elsewhere in the source document is not a receipt for this claim.
+        "claim_quotes": """MATCH (c:Claim {id:$id}) OPTIONAL MATCH (c)-[r:CITES]->(s:Source) RETURN r.quote, s.text""",
     }
 )
 
@@ -146,7 +148,15 @@ class Taint:
         return out
 
     def correct(self, claim: str, value: str | float, reason: str) -> list[Row]:
-        return [{"id": r[0], "kind": r[1], "title": r[2], "hops": r[3]} for r in self.q("correct", id=claim, value=str(value), reason=reason)]
+        """Refuse a new value that is not a number in this claim's cited quote (the source body is not enough)."""
+        quotes = self.q("claim_quotes", id=claim)
+        if quotes:
+            nums: list[str] = []
+            for quote, text in quotes:
+                nums.extend(NUM.findall(quote or text or ""))
+            if str(value).strip() not in nums:
+                raise ValueError(f"refused: no cited quote for claim {claim} contains the value {value}")
+        return [{"id": r[0], "kind": r[1], "title": r[2], "hops": r[3]} for r in self.q("correct", id=claim, value=str(value).strip(), reason=reason)]
 
     def cascade_refuted(self) -> dict[str, int]:
         """Taint everything downstream of every refuted claim."""

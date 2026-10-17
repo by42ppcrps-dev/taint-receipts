@@ -126,9 +126,13 @@ def check_receipts() -> list[dict[str, Any]]:
 
 
 @mcp.tool()
-def correct_claim(claim: Id, value: Value, reason: Short) -> list[dict[str, Any]]:
-    """Fix a claim and taint every downstream artifact (multi-hop). Returns the blast radius."""
-    return tt.correct(claim, value, reason)
+def correct_claim(claim: Id, value: Value, reason: Short) -> list[dict[str, Any]] | str:
+    """Fix a claim and taint every downstream artifact (multi-hop). Returns the blast radius.
+    The new value must appear in the claim's cited quote."""
+    try:
+        return tt.correct(claim, value, reason)
+    except ValueError as e:
+        return str(e)
 
 
 @mcp.tool()

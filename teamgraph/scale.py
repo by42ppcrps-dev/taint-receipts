@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from .cypher import register, run
+from .taint import Q as taint_q
 from .taint import Taint, connect
 
 KINDS = [("post", 1500), ("video", 20000), ("email", 5000), ("image", 8000), ("blog", 3000), ("page", 10000)]
@@ -84,7 +85,9 @@ def bench(t: Taint, claim: str = "c42", runs: int = 20) -> dict[str, Any]:
         ts.append((time.perf_counter() - s) * 1000)
     ts.sort()
     s = time.perf_counter()
-    t.correct(claim, "fixed", "bench")
+    # Times the cascade query itself. Public correct() also requires a cited quote;
+    # these synthetic claims have none, so the benchmark does not go through that gate.
+    run(t.g, taint_q["correct"], {"id": claim, "value": "fixed", "reason": "bench"})
     plan = t.recall()
     corr = (time.perf_counter() - s) * 1000
     return {

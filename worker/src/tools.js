@@ -4,6 +4,38 @@ import { run, SEP } from "./cypher.js";
 const NUM = /\d+(?:\.\d+)?/g;
 const S = (props = {}, req = []) => ({ type: "object", properties: props, required: req });
 const str = d => ({ type: "string", description: d });
+const TEAM = new Set(["Scout", "Quill", "Reel", "Lens"]);
+export class Refusal extends Error { constructor(m) { super(m); this.name = "Refusal"; } }
+// Characters that leave a prompt fence or break a Cypher/HTML line. One policy for corrections, memos, notes.
+export function untrustedText(s, max = 300) {
+  return String(s ?? "").replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029<>"]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+export function scrub(v) {
+  if (typeof v === "string") return untrustedText(v, 2000);
+  if (Array.isArray(v)) return v.map(scrub);
+  if (v && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = scrub(x); return o; }
+  return v;
+}
+export function publicError(e) {
+  if (e instanceof Refusal) return e.message;
+  const m = String(e && e.message || "");
+  if (/^(demo graph is full|unknown agent|no agent |no task |refused:|arguments must be an object$)/.test(m)) return m;
+  if (/^(unknown argument |missing argument )/.test(m)) return m;
+  if (/ is too long \(max \d+\)$/.test(m) || / must be an integer 1-50$/.test(m) || / must be a string$/.test(m)) return m;
+  if (/ does not own task /.test(m)) return m;
+  return "internal error";
+}
+// The cited quote is the receipt. A number that only appears elsewhere in the source document does not count.
+export async function needsReceipt(db, G, a) {
+  const rows = await run(db, G, "claim_sources", { id: String(a.claim || "") });
+  const nums = rows.flatMap(r => {
+    const quote = r[0] == null ? "" : String(r[0]);
+    const text = r[1] == null ? "" : String(r[1]);
+    return (quote || text).match(/\d+(?:\.\d+)?/g) || [];
+  });
+  const value = String(a.value ?? "").trim();
+  return rows.length && nums.includes(value) ? null : { error: `refused: no cited quote for claim ${a.claim} contains the value ${value}` };
+}
 // FalkorDB's verbose RESP mode returns lists as strings, so list-valued columns are joined in Cypher and split here.
 const split = v => String(v || "").split(SEP).slice(0, -1);
 const id = () => Math.random().toString(16).slice(2, 12), now = () => Date.now() / 1000;
@@ -21,15 +53,20 @@ export async function receipts(db, G) {
 }
 
 // Growth cap so nobody can fill the shared demo graph with memos/episodes/handoffs between resets.
-async function roomFor(db, G) { const r = await run(db, G, "room"); if (Number(r[0][0]) >= 300) throw new Error("demo graph is full; press Reset"); }
+async function roomFor(db, G) {
+  const n = Number((await run(db, G, "room"))[0][0]) || 0;
+  const r = await run(db, "taint_meta", "admit", { floor: Number.isFinite(n) ? n : 0 });
+  if (!r.length) throw new Error("demo graph is full; press Reset");
+}
 export const TOOLS = {
   check_receipts: { d: "QA: refute claims whose number is not in the cited source quote, or that cite nothing.", s: S(), f: receipts },
   claim_risk: { d: "Graph algorithm (PageRank over DERIVED_FROM): rank claims by how load-bearing they are, with how many artifacts and how much published reach sit downstream. Audit the top ones first.", s: S(),
     f: async (db, G) => (await run(db, G, "risk")).map(r => ({ claim: r[0], text: r[1], status: r[2], pagerank: Math.round(Number(r[3]) * 1e4) / 1e4, downstream: Number(r[4]), exposed_reach: Number(r[5]) })) },
   chokepoints: { d: "Graph algorithm (betweenness centrality): artifacts that the most dependency paths run through.", s: S({ k: { type: "integer", description: "how many (default 5)" } }),
-    f: async (db, G, a) => (await run(db, G, "chokepoints", { lim: Number(a.k) || 5 })).map(r => ({ id: r[0], title: r[1], status: r[2], betweenness: Number(r[3]) })) },
-  correct_claim: { d: "Fix a claim (by claim id) and taint every downstream artifact up to 10 hops (DERIVED_FROM*1..10). Returns the blast radius with hop distance.", s: S({ claim: str("claim id, e.g. from check_receipts"), value: str("the correct value"), reason: str("why") }, ["claim", "value", "reason"]),
-    f: async (db, G, a) => (await run(db, G, "correct", { id: String(a.claim), value: String(a.value), reason: String(a.reason) })).map(r => ({ id: r[0], kind: r[1], title: r[2], hops: Number(r[3]) })) },
+    f: async (db, G, a) => (await run(db, G, "chokepoints", { lim: Math.min(50, Math.max(1, Math.trunc(Number(a && a.k)) || 5)) })).map(r => ({ id: r[0], title: r[1], status: r[2], betweenness: Number(r[3]) })) },
+  correct_claim: { d: "Fix a claim (by claim id) and taint every downstream artifact up to 10 hops (DERIVED_FROM*1..10). Returns the blast radius with hop distance. The new value must appear in the claim's cited quote.", s: S({ claim: str("claim id, e.g. from check_receipts"), value: str("the correct value"), reason: str("why") }, ["claim", "value", "reason"]),
+    f: async (db, G, a) => { const rec = await needsReceipt(db, G, a); if (rec) throw new Refusal(rec.error);
+      return (await run(db, G, "correct", { id: String(a.claim), value: String(a.value).trim(), reason: untrustedText(a.reason, 200) })).map(r => ({ id: r[0], kind: r[1], title: r[2], hops: Number(r[3]) })); } },
   recall_plan: { d: "Recall plan: tainted published items, most-viewed first, with owner, live URL and estimated reach.", s: S(),
     f: async (db, G) => { const items = (await run(db, G, "recall")).map(r => ({ id: r[0], kind: r[1], title: r[2], reach: Number(r[3]), url: r[4], owner: r[5], agent: r[6] }));
       return { items, total_reach: items.reduce((x, i) => x + i.reach, 0), live_urls: items.filter(x => x.url).length }; } },
@@ -40,19 +77,25 @@ export const TOOLS = {
   requeue_tainted: { d: "Create redo tasks (id 'redo-<artifact id>') for tainted artifacts, owned by the agent that produced them. Idempotent.", s: S(),
     f: async (db, G) => (await run(db, G, "requeue")).map(r => ({ agent: r[0], title: r[1], task: r[2] })) },
   draft_recall_memo: { d: "Store a recall memo for one owner (agent name) in the graph, linked to the open redo tasks they own.", s: S({ owner: str("agent name, e.g. Reel"), text: str("the memo") }, ["owner", "text"]),
-    f: async (db, G, a) => { await roomFor(db, G); const r = await run(db, G, "m_memo", { owner: String(a.owner), text: String(a.text).slice(0, 2000), author: "RecallAgent", id: id(), ts: now() }); if (!r.length) throw new Error(`no agent ${a.owner}`); return r[0][0]; } },
+    f: async (db, G, a) => { const owner = String(a.owner); if (!TEAM.has(owner)) throw new Error(`no agent ${owner}`);
+      if (!(await run(db, G, "named_agent", { name: owner })).length) throw new Error(`no agent ${owner}`);
+      await roomFor(db, G); const r = await run(db, G, "m_memo", { owner, text: untrustedText(a.text, 2000), author: "RecallAgent", id: id(), ts: now() }); if (!r.length) throw new Error(`no agent ${owner}`); return r[0][0]; } },
   remember_episode: { d: "Episodic memory: log what an agent did, so later sessions can see it.", s: S({ agent: str("agent name"), text: str("what happened"), session: str("session id, e.g. s1"), task: str("optional task id") }, ["agent", "text"]),
-    f: async (db, G, a) => { await roomFor(db, G); if (!["RecallAgent", "Scout", "Quill", "Reel", "Lens"].includes(a.agent)) throw new Error("unknown agent"); await run(db, G, "agent", { name: String(a.agent), role: "" }); return (await run(db, G, "m_episode", { agent: String(a.agent), text: String(a.text).slice(0, 1000), session: String(a.session || "s1"), task: String(a.task || ""), id: id(), ts: now() }))[0][0]; } },
+    f: async (db, G, a) => { if (!["RecallAgent", "Scout", "Quill", "Reel", "Lens"].includes(a.agent)) throw new Error("unknown agent");
+      await roomFor(db, G); await run(db, G, "agent", { name: String(a.agent), role: "" }); return (await run(db, G, "m_episode", { agent: String(a.agent), text: untrustedText(a.text, 1000), session: String(a.session || "s1"), task: String(a.task || ""), id: id(), ts: now() }))[0][0]; } },
   start_session: { d: "Briefing from the graph for a fresh session: owned open tasks, last handoff notes, recall memos addressed to this agent, and its recent episodes.", s: S({ agent: str("agent name") }, ["agent"]),
     f: async (db, G, a) => ({ tasks: (await run(db, G, "m_briefing", { agent: String(a.agent) })).map(r => ({ task: r[0], title: r[1], status: r[2], from_agent: r[3], note: r[4] })),
       memos: (await run(db, G, "m_memos_for", { agent: String(a.agent) })).map(r => ({ author: r[0], text: r[1] })),
       episodes: (await run(db, G, "m_episodes_for", { agent: String(a.agent) })).map(r => ({ session: r[0], text: r[1] })) }) },
   hand_off: { d: "Move task ownership to another agent and record the handoff note.", s: S({ from_agent: str("current owner"), to_agent: str("new owner"), task: str("task id"), note: str("note") }, ["from_agent", "to_agent", "task", "note"]),
     f: async (db, G, a) => { if (a.from_agent === a.to_agent) return "refused: cannot hand a task to yourself";
+      if (!TEAM.has(String(a.from_agent)) || !TEAM.has(String(a.to_agent))) return "refused: unknown teammate";
+      const task = String(a.task);
+      if (!(await run(db, G, "task_open", { agent: String(a.from_agent), task })).length) throw new Error(`${a.from_agent} does not own task ${task}`);
+      const last = await run(db, G, "m_last_giver", { task });
+      if (last.length && last[0][0] === a.to_agent) return `refused: ${a.to_agent} just handed ${task} to you; complete it instead of handing it back`;
       await roomFor(db, G);
-      const last = await run(db, G, "m_last_giver", { task: String(a.task) });
-      if (last.length && last[0][0] === a.to_agent) return `refused: ${a.to_agent} just handed ${a.task} to you; complete it instead of handing it back`;
-      const r = await run(db, G, "m_handoff", { from_agent: String(a.from_agent), to_agent: String(a.to_agent), task: String(a.task), note: String(a.note).slice(0, 1000), id: id(), ts: now() }); if (!r.length) throw new Error(`${a.from_agent} does not own task ${a.task}`); return r[0][0]; } },
+      const r = await run(db, G, "m_handoff", { from_agent: String(a.from_agent), to_agent: String(a.to_agent), task, note: untrustedText(a.note, 1000), id: id(), ts: now() }); if (!r.length) throw new Error(`${a.from_agent} does not own task ${task}`); return r[0][0]; } },
   complete_task: { d: "Mark a task (e.g. 'redo-short') done.", s: S({ task: str("task id") }, ["task"]),
     f: async (db, G, a) => { const r = await run(db, G, "m_done", { id: String(a.task) }); if (!r.length) throw new Error(`no task ${a.task}`); return a.task; } },
   recall: { d: "Search episodic and semantic memory.", s: S({ query: str("text to search") }, ["query"]),
@@ -90,7 +133,7 @@ export async function rpc(db, G, msg) {
     const t = TOOLS[msg.params?.name];
     if (!t) return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "unknown tool" } };
     try { const v = await t.f(db, G, validate(t.s, msg.params.arguments || {})); return ok({ content: [{ type: "text", text: JSON.stringify(v) }], structuredContent: { result: v }, isError: false }); }
-    catch (e) { return ok({ content: [{ type: "text", text: String(e.message || e) }], isError: true }); }
+    catch (e) { return ok({ content: [{ type: "text", text: publicError(e) }], isError: true }); }
   }
   return { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } };
 }

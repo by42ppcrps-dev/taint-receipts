@@ -20,11 +20,12 @@ export const Q = {
  "edges": "MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r)",
  "wipe": "MATCH (n) DETACH DELETE n",
  "refuted_ids": "MATCH (c:Claim {status:'refuted'}) RETURN c.id",
- "cascade_one": "MATCH p=(x:Artifact)-[:DERIVED_FROM*1..10]->(:Claim {id:$id}) SET x.status='tainted'\n   RETURN DISTINCT x.id, length(p)"
+ "cascade_one": "MATCH p=(x:Artifact)-[:DERIVED_FROM*1..10]->(:Claim {id:$id}) SET x.status='tainted'\n   RETURN DISTINCT x.id, length(p)",
+ "claim_quotes": "MATCH (c:Claim {id:$id}) OPTIONAL MATCH (c)-[r:CITES]->(s:Source) RETURN r.quote, s.text"
 };
 export const M = {
  "episode": "MATCH (a:Agent {name:$agent}) CREATE (e:Episode {id:$id, text:$text, session:$session, ts:$ts})\n   CREATE (a)-[:EXPERIENCED]->(e)\n   WITH e OPTIONAL MATCH (t:Task {id:$task}) FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | CREATE (e)-[:ABOUT]->(t)) RETURN e.id",
- "handoff": "MATCH (f:Agent {name:$from_agent})-[o:OWNS]->(t:Task {id:$task}) MATCH (to:Agent {name:$to_agent})\n   DELETE o CREATE (to)-[:OWNS]->(t)\n   CREATE (h:Handoff {id:$id, note:$note, ts:$ts}) CREATE (f)-[:GAVE]->(h)-[:TO]->(to) CREATE (h)-[:FOR]->(t) RETURN h.id",
+ "handoff": "MATCH (f:Agent {name:$from_agent})-[o:OWNS]->(t:Task {id:$task})\n   WHERE coalesce(t.status,'open') <> 'done' MATCH (to:Agent {name:$to_agent})\n   DELETE o CREATE (to)-[:OWNS]->(t)\n   CREATE (h:Handoff {id:$id, note:$note, ts:$ts}) CREATE (f)-[:GAVE]->(h)-[:TO]->(to) CREATE (h)-[:FOR]->(t) RETURN h.id",
  "briefing": "MATCH (a:Agent {name:$agent})-[:OWNS]->(t:Task) WHERE t.status <> 'done'\n   OPTIONAL MATCH (h:Handoff)-[:FOR]->(t) OPTIONAL MATCH (g:Agent)-[:GAVE]->(h)\n   WITH t, h, g ORDER BY h.ts DESC WITH t, collect({from:g.name, note:h.note})[0] AS last\n   RETURN t.id, t.title, t.status, last.from, last.note",
  "done": "MATCH (t:Task {id:$id}) SET t.status='done' RETURN t.id",
  "memo": "MATCH (a:Agent {name:$owner}) CREATE (m:Memo {id:$id, text:$text, author:$author, ts:$ts}) CREATE (a)-[:RECEIVED]->(m)\n   WITH a, m OPTIONAL MATCH (a)-[:OWNS]->(t:Task) WHERE t.status <> 'done'\n   FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | CREATE (m)-[:COVERS]->(t)) RETURN DISTINCT m.id",

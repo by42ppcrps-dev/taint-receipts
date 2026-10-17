@@ -44,7 +44,7 @@ function color(n){if(n.status==='tainted'||n.status==='refuted'||n.status==='cor
 function color2(n){return typeof n.color==='string'?n.color:n.color.background}
 function draw(g,anim){textGraph(g);KEY={};g.nodes.forEach(n=>{if(n.key!=null)KEY[n.key]=n.id});const seen=new Set();const ag=new Set(g.nodes.filter(n=>HIDE.has(n.label)).map(n=>n.id));g.nodes=g.nodes.filter(n=>!ag.has(n.id));g.edges=g.edges.filter(e=>!ag.has(e.source)&&!ag.has(e.target));g.nodes.forEach(n=>{seen.add(n.id);const v={id:n.id,label:(n.name||'').slice(0,34),color:color(n),size:n.label==='Agent'?20:14};
   const old=nodes.get(n.id);if(anim&&old&&old.color!==v.color){setTimeout(()=>nodes.update(v),(anim[n.name]||1)*450)}else nodes.update(v)});
- nodes.getIds().filter(i=>!seen.has(i)).forEach(i=>nodes.remove(i));edges.clear();g.edges.forEach((e,i)=>edges.add({id:i,from:e.source,to:e.target,title:e.type}));refit()}
+ nodes.getIds().filter(i=>!seen.has(i)).forEach(i=>nodes.remove(i));edges.clear();g.edges.forEach((e,i)=>edges.add({id:i,from:e.source,to:e.target,title:esc(e.type)}));refit()}
 function textGraph(g){const by={};g.nodes.forEach(n=>by[n.id]=n);const st=n=>n.status?' ['+n.status+']':'';
  const out=g.nodes.map(n=>{const ups=g.edges.filter(e=>e.source===n.id).map(e=>e.type.toLowerCase().replace(/_/g,' ')+' '+((by[e.target]||{}).name||'?'));return '<li><b>'+esc(n.label)+'</b>: '+esc((n.name||'')+st(n)+(ups.length?' — '+ups.join('; '):''))+'</li>'});
  document.getElementById('gtextbody').innerHTML='<p>'+g.nodes.length+' nodes, '+g.edges.length+' edges. Tainted: '+g.nodes.filter(n=>n.status==='tainted').length+'.</p><ul>'+out.join('')+'</ul>'}
@@ -73,5 +73,5 @@ async function showTrace(res){const el=document.getElementById('trace');el.style
   tl.appendChild(li);li.scrollIntoView({block:"nearest"});await new Promise(r=>setTimeout(r,550))}
  const sp=res.trace.filter(s=>s.tool==='why_shortest').pop();if(sp){unhl();hl(touched(sp))}
  el.insertAdjacentHTML('beforeend','<p><b>Summary:</b> '+esc(res.summary)+'</p>')}
-fetch('/api/graph').then(r=>r.json()).then(g=>draw(g));
+fetch('/api/graph').then(r=>r.json()).then(g=>{if(g&&g.nodes)draw(g)}).catch(()=>{});
 </script></body></html>
