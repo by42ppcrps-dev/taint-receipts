@@ -35,7 +35,7 @@ Gemini (gemini-3.5-flash-lite) ──function calls──▶ MCP tools/call ─�
 - **Guardrails, enforced in code:** each mode gets only its own tools, and session agents can act only as themselves. Corrections need a source receipt. Tool calls are capped per run, inputs are schema-validated and length-capped, and correction text is treated as untrusted data. LLM spend is priced and capped (`LLM_CAP_USD`, default $0.50 total). After that, or during the 20-second cooldown between live runs, the demo **replays a recorded Gemini run**: the same tool calls, executed live on FalkorDB, and labelled as a replay in the UI. See `docs/SECURITY-REVIEW.md`.
 
 ## Scale: measured on embedded FalkorDB (FalkorDBLite, this box)
-`python -m teamgraph.scale 1000 25` seeds 1,000 claims and 25,000 synthetic published artifacts with chains up to 10 hops deep, then times the cascade query.
+`python -m teamgraph.scale 1000 25` seeds 1,000 claims and 25,000 synthetic published artifacts in multi-hop chains, and the queries walk up to 10 hops, then times the cascade query.
 
 | Graph | Nodes | Edges | Cascade query p50 / max | Correct + recall plan |
 |---|---|---|---|---|
