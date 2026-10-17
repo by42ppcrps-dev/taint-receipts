@@ -22,6 +22,8 @@ export async function receipts(db, G) {
 const whyShortestQ = Q.why_shortest.replace("[n IN nodes(p) | coalesce(n.title, n.text)]", join("coalesce(n.title, n.text)")).replace("[n IN nodes(p) | n.id]", join("n.id"));
 const whyAllQ = Q.why_tainted.replace("[n IN nodes(p) | coalesce(n.title, n.text)]", join("coalesce(n.title, n.text)"));
 
+// Growth cap so nobody can fill the shared demo graph with memos/episodes/handoffs between resets.
+async function roomFor(db, G) { const r = await db.query(G, "MATCH (n) WHERE n:Memo OR n:Episode OR n:Handoff RETURN count(n)"); if (Number(r[0][0]) >= 300) throw new Error("demo graph is full; press Reset"); }
 export const TOOLS = {
   check_receipts: { d: "QA: refute claims whose number is not in the cited source quote, or that cite nothing.", s: S(), f: receipts },
   claim_risk: { d: "Graph algorithm (PageRank over DERIVED_FROM): rank claims by how load-bearing they are, with how many artifacts and how much published reach sit downstream. Audit the top ones first.", s: S(),
@@ -40,15 +42,16 @@ export const TOOLS = {
   requeue_tainted: { d: "Create redo tasks (id 'redo-<artifact id>') for tainted artifacts, owned by the agent that produced them. Idempotent.", s: S(),
     f: async (db, G) => (await db.query(G, Q.requeue)).map(r => ({ agent: r[0], title: r[1], task: r[2] })) },
   draft_recall_memo: { d: "Store a recall memo for one owner (agent name) in the graph, linked to the open redo tasks they own.", s: S({ owner: str("agent name, e.g. Reel"), text: str("the memo") }, ["owner", "text"]),
-    f: async (db, G, a) => { const r = await db.query(G, M.memo, { owner: String(a.owner), text: String(a.text).slice(0, 2000), author: "RecallAgent", id: id(), ts: now() }); if (!r.length) throw new Error(`no agent ${a.owner}`); return r[0][0]; } },
+    f: async (db, G, a) => { await roomFor(db, G); const r = await db.query(G, M.memo, { owner: String(a.owner), text: String(a.text).slice(0, 2000), author: "RecallAgent", id: id(), ts: now() }); if (!r.length) throw new Error(`no agent ${a.owner}`); return r[0][0]; } },
   remember_episode: { d: "Episodic memory: log what an agent did, so later sessions can see it.", s: S({ agent: str("agent name"), text: str("what happened"), session: str("session id, e.g. s1"), task: str("optional task id") }, ["agent", "text"]),
-    f: async (db, G, a) => { await db.query(G, Q.agent, { name: String(a.agent), role: "" }); return (await db.query(G, M.episode, { agent: String(a.agent), text: String(a.text).slice(0, 1000), session: String(a.session || "s1"), task: String(a.task || ""), id: id(), ts: now() }))[0][0]; } },
+    f: async (db, G, a) => { await roomFor(db, G); if (!["RecallAgent", "Scout", "Quill", "Reel", "Lens"].includes(a.agent)) throw new Error("unknown agent"); await db.query(G, Q.agent, { name: String(a.agent), role: "" }); return (await db.query(G, M.episode, { agent: String(a.agent), text: String(a.text).slice(0, 1000), session: String(a.session || "s1"), task: String(a.task || ""), id: id(), ts: now() }))[0][0]; } },
   start_session: { d: "Briefing from the graph for a fresh session: owned open tasks, last handoff notes, recall memos addressed to this agent, and its recent episodes.", s: S({ agent: str("agent name") }, ["agent"]),
     f: async (db, G, a) => ({ tasks: (await db.query(G, M.briefing, { agent: String(a.agent) })).map(r => ({ task: r[0], title: r[1], status: r[2], from_agent: r[3], note: r[4] })),
       memos: (await db.query(G, M.memos_for, { agent: String(a.agent) })).map(r => ({ author: r[0], text: r[1] })),
       episodes: (await db.query(G, M.episodes_for, { agent: String(a.agent) })).map(r => ({ session: r[0], text: r[1] })) }) },
   hand_off: { d: "Move task ownership to another agent and record the handoff note.", s: S({ from_agent: str("current owner"), to_agent: str("new owner"), task: str("task id"), note: str("note") }, ["from_agent", "to_agent", "task", "note"]),
     f: async (db, G, a) => { if (a.from_agent === a.to_agent) return "refused: cannot hand a task to yourself";
+      await roomFor(db, G);
       const last = await db.query(G, M.last_giver, { task: String(a.task) });
       if (last.length && last[0][0] === a.to_agent) return `refused: ${a.to_agent} just handed ${a.task} to you; complete it instead of handing it back`;
       const r = await db.query(G, M.handoff, { from_agent: String(a.from_agent), to_agent: String(a.to_agent), task: String(a.task), note: String(a.note).slice(0, 1000), id: id(), ts: now() }); if (!r.length) throw new Error(`${a.from_agent} does not own task ${a.task}`); return r[0][0]; } },

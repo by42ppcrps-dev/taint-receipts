@@ -15,6 +15,18 @@ ROLES = {"Scout": "research", "Quill": "copywriting", "Reel": "video and caption
 RECALL_TOOLS = ["check_receipts", "claim_risk", "chokepoints", "correct_claim", "recall_plan", "why_shortest",
                 "requeue_tainted", "draft_recall_memo", "remember_episode", "trust_ledger"]
 SESSION_TOOLS = ["start_session", "complete_task", "hand_off", "remember_episode", "recall"]
+MAX_CALLS = 30
+
+def guard(mode, who, name, a):
+    """Narrow scoping (mirrors worker/src/agent.js): only this mode's tools, and the agent may only act as itself."""
+    if name not in (RECALL_TOOLS if mode == "recall" else SESSION_TOOLS): return {"error": "tool not allowed"}
+    if not isinstance(a, dict): return {"error": "bad arguments"}
+    if mode == "session":
+        if name == "start_session" and a.get("agent") != who: return {"error": f"you are {who}"}
+        if name == "hand_off" and a.get("from_agent") != who: return {"error": f"you can only hand off your own tasks ({who})"}
+        if name == "remember_episode" and a.get("agent") != who: return {"error": f"log episodes as {who}"}
+    if mode == "recall" and name == "remember_episode" and a.get("agent") != "RecallAgent": return {"error": "log episodes as RecallAgent"}
+    return None
 
 def _a(o, *names):
     """Field across MCP SDK versions (snake_case or camelCase)."""
@@ -48,7 +60,7 @@ async def run(mode, arg, call_llm=None, log=print):
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("LUMEGRID_GEMINI_API_KEY")
     model = P["model"]
     call_llm = call_llm or (lambda c, d: gemini(key, model, c, d))
-    prompt = P["recall"].format(correction=arg) if mode == "recall" else P["session"].format(agent=arg, role=ROLES.get(arg, "team"))
+    prompt = P["recall"].format(correction=str(arg).replace('"', ' ').replace("\n", " ")[:300]) if mode == "recall" else P["session"].format(agent=arg, role=ROLES.get(arg, "team"))
     allowed = RECALL_TOOLS if mode == "recall" else SESSION_TOOLS
     params = StdioServerParameters(command=sys.executable, args=["-m", "teamgraph.mcp_server"], env=dict(os.environ))
     trace, usage = [], {"in": 0, "out": 0}
@@ -68,6 +80,11 @@ async def run(mode, arg, call_llm=None, log=print):
                     return dict(summary=text.strip(), trace=trace, usage=usage, model=model)
                 parts = []
                 for c in calls:
+                    if len(trace) >= MAX_CALLS: return dict(summary="(stopped: tool-call limit)", trace=trace, usage=usage, model=model)
+                    g = guard(mode, arg, c["name"], c.get("args") or {})
+                    if g:
+                        trace.append(dict(tool=c["name"], args=c.get("args") or {}, result=g))
+                        parts.append({"functionResponse": {"name": c["name"], "response": g}}); continue
                     res = await s.call_tool(c["name"], c.get("args") or {})
                     sc = _a(res, "structured_content", "structuredContent")
                     out = sc if sc is not None else "\n".join(getattr(x, "text", "") for x in res.content)

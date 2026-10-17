@@ -11,6 +11,19 @@ const ALLOW = { recall: ["check_receipts", "claim_risk", "chokepoints", "correct
   session: ["start_session", "complete_task", "hand_off", "remember_episode", "recall"] };
 const PRICE_IN = 0.30e-6, PRICE_OUT = 2.50e-6, META = "taint_meta";
 
+const MAX_CALLS = 30;
+// Narrow scoping: whatever the model was talked into, it may only use its mode's tools, and act as itself.
+export function guard(mode, who, name, a) {
+  if (!ALLOW[mode].includes(name)) return { error: "tool not allowed" };
+  if (typeof a !== "object" || Array.isArray(a)) return { error: "bad arguments" };
+  if (mode === "session") {
+    if (name === "start_session" && a.agent !== who) return { error: `you are ${who}` };
+    if (name === "hand_off" && a.from_agent !== who) return { error: `you can only hand off your own tasks (${who})` };
+    if (name === "remember_episode" && a.agent !== who) return { error: `log episodes as ${who}` };
+  }
+  if (mode === "recall" && name === "remember_episode" && a.agent !== "RecallAgent") return { error: "log episodes as RecallAgent" };
+  return null;
+}
 async function call(db, G, name, args) {
   const r = (await rpc(db, G, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })).result;
   return r.isError ? { error: r.content[0].text } : r.structuredContent.result;
@@ -34,7 +47,7 @@ async function replay(db, G, mode, who, why) {
 async function liveRun(db, G, env, mode, who) {
   await db.query(META, "MATCH (b:Budget {id:'llm'}) SET b.last=$t, b.runs=b.runs+1", { t: Date.now() / 1000 });
   const model = env.GEMINI_MODEL || P.model;
-  const prompt = mode === "recall" ? P.recall.replace("{correction}", who || "Support says battery life is 3.5 hours, not 35")
+  const prompt = mode === "recall" ? P.recall.replace("{correction}", String(who || "Support says battery life is 3.5 hours, not 35").replace(/["\r\n]/g, " ").slice(0, 300))
     : P.session.replaceAll("{agent}", who).replaceAll("{role}", ROLES[who] || "team");
   const tl = (await rpc(db, G, { jsonrpc: "2.0", id: 1, method: "tools/list" })).result.tools.filter(t => ALLOW[mode].includes(t.name));
   const decls = tl.map(t => Object.keys(t.inputSchema.properties).length ? { name: t.name, description: t.description, parameters: t.inputSchema } : { name: t.name, description: t.description });
@@ -52,7 +65,8 @@ async function liveRun(db, G, env, mode, who) {
       if (!calls.length) { summary = (msg.parts || []).map(p => p.text || "").join("").trim(); break; }
       const parts = [];
       for (const c of calls) {
-        const out = ALLOW[mode].includes(c.name) ? await call(db, G, c.name, c.args || {}) : { error: "tool not allowed" };
+        if (trace.length >= MAX_CALLS) throw new Error("tool-call limit");
+        const out = guard(mode, who, c.name, c.args || {}) || await call(db, G, c.name, c.args || {});
         trace.push({ tool: c.name, args: c.args || {}, result: out });
         parts.push({ functionResponse: { name: c.name, response: out && typeof out === "object" && !Array.isArray(out) ? out : { result: out } } });
       }
