@@ -6,7 +6,7 @@ Branch: `feat/agent-graph-algos`. Review date: Oct 16, 2026 (America/Boise). Sco
 | Pass | Who | Status |
 |---|---|---|
 | 1. Own review plus automated checks | build agent | done (this document) |
-| 2. Fresh-eyes bug and vulnerability review | separate agent | **pending.** Must finish before merge |
+| 2. Fresh-eyes bug and vulnerability review | separate agent | done (this document, Pass 2) |
 | 3. End-to-end smoke on the live deploy after merge, plus a fresh-clone README setup | build agent | pending (runs after merge) |
 
 The pre-merge staging smoke is done: every endpoint and button was exercised on a Worker preview version against a separate `taint_staging` graph.
@@ -73,3 +73,64 @@ Nothing in v1 was critical enough to hot-fix ahead of the v2 deploy.
 - The demo is a single shared sandbox graph by design (synthetic data). Visitors can still see each other's state.
 - The rate limiter is per-location and eventually consistent, so it is a soft limit. The hard money limit is the budget cap.
 - `'unsafe-inline'` in `script-src` is needed for the single-file page. All dynamic content is escaped.
+
+## Pass 2 (independent review)
+
+Fresh-eyes pass on `feat/agent-graph-algos`, 17 Oct 2026. Each Pass 1 claim was checked against the Worker, the Python package, the demo page, and the tests. No paid Gemini or FalkorDB call was made. This pass did not merge and did not deploy.
+
+### Findings
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | High | The LLM cap was check-then-act. Concurrent requests could all observe `usd` under the cap and a last-run time older than 20s, then all start a live Gemini call. A finish from an older run could also clear a newer lock. A negative `promptTokenCount` is truthy, so `\|\| 0` left it negative and the Cypher `b.usd + $u` subtraction reopened the cap. | Fixed. One query acquires the slot (`token` plus heartbeat). Touch renews the lease. Finish clears the lock only when the token matches, clamps usage at zero, and adds a charge only when it is positive. |
+| 2 | High | The replay path judges hit (no key, over cap, 20s cooldown, model error) did not execute. `recorded.json` sent `author` on `draft_recall_memo`, which `validate()` rejects, and the recall episode's `task` was longer than 64 characters, so the memo and episode steps failed. | Fixed. Those recorded arguments match the schema. Replay calls `act()` (allow-list, ownership, receipt), not a raw tool call. |
+| 3 | Medium | The receipt check used the whole source body. A correction could set `c-battery` to 12 or 29, or `c-price` to 59, because those numbers sit in the document outside the cited quote. | Fixed. The Worker tool and `Taint.correct` require the new value in the cited quote (source text only when the quote is empty). No citation means refuse. `/api/correct` returns 400. |
+| 4 | Medium | The Worker built the recall prompt with `String.replace`. A correction containing `$'` inserted the tail of the template after the fence. `</correction>` and U+2028/U+2029 were not stripped. | Fixed. `untrustedText` strips controls, quotes, and brackets. The placeholder uses a function replacer, so `$` sequences stay literal. Python `str.format` was already literal; it now strips the same characters. |
+| 5 | Medium | A session agent could `complete_task` any task id. | Fixed on the public path. `act()` checks `OWNS` for session mode using the route's agent (Reel, Quill, Scout, or Lens), not a model-supplied name. `POST /mcp` does not expose `complete_task`. |
+| 6 | Medium | Reset took the global 15s slot before the per-IP 1s write cooldown. An IP already inside its write window consumed the global slot and the graph was not reset. | Fixed. `writeGate` checks the per-IP window first. |
+| 7 | Medium | Gemini failures and database exceptions were returned to the client (`Gemini error:` plus the message, and `e.message` on HTTP 500). A `rediss://` URL in an exception would have included the password. | Fixed. The client sees `the model call failed` or `internal error`. `publicError` allow-lists validation and refusal text. Logs pass through `redact()`, which strips `redis://` URLs. The model name must match `^[A-Za-z0-9._-]+$`, and the Gemini fetch aborts at 20s. |
+| 8 | Low | `lit()` escaped `\` and `"` but not newlines or other controls, so an inlined Cypher string could break. Python accepted NaN and Infinity as parameters. | Fixed. Controls are escaped or replaced. Non-finite floats are rejected in Python and become `null` in the Worker. |
+| 9 | Low | The 300-write cap read the node count, then inserted. Concurrent admits could both pass. | Fixed. One `admit` query floors the `taint_meta` counter at the current count and increments only while that base is under 300. Reset still zeroes the counter; the demo wipe does not touch `taint_meta`. |
+| 10 | Low | `hand_off`, `draft_recall_memo`, and `remember_episode` incremented the write counter before they knew the write was legal. A refused handoff, a memo to a non-team name, or an episode for an unknown agent burned a slot. Thirty such calls per agent run could fill the cap without creating nodes. | Fixed. Ownership, ping-pong, team membership, and the agent allow-list are checked first. The counter moves only when a node will be created. |
+| 11 | Low | If the rate-limit binding threw, the catch treated the request as allowed. | Fixed. A present binding that throws fails closed (429). A missing binding stays unlimited so local tests run. |
+| 12 | Low | `GET /api/graph` treated any failed count query as zero nodes and called `seed()`, which wipes the graph. | Fixed. Only a real count of 0 seeds. A thrown or malformed count returns 500 and leaves the graph alone. |
+| 13 | Low | The local demo server treated `Content-Length: -1` as `read(-1)`, which ignores the 4KB cap. | Fixed. Negative and non-numeric lengths are 400. Oversized lengths stay 413. |
+| 14 | Low | Handing off a task with status `done` still deleted `OWNS` and created a new owner. | Fixed. The handoff query requires `coalesce(t.status,'open') <> 'done'`. |
+| 15 | Low | CSP `script-src` allowed any script on `https://unpkg.com` once an injection existed. Edge tooltip titles were relationship types passed to vis-network, which renders titles as HTML. A failed `GET /api/graph` threw inside `draw()`. | Fixed. `script-src` is the exact vis-network 9.1.9 file, `object-src` is `'none'`, tooltip titles go through `esc()`, and a body without `nodes` is ignored. SRI on that script is unchanged. |
+
+### Checked and holding
+
+- Cypher is still registered constants plus parameters. `why_shortest_flat` rewrites two fixed list expressions inside `cypher.js`. The graph name is a separate Redis argument. The invariant tests fail CI if another file calls `.query(` or builds Cypher with a template interpolation.
+- `POST /mcp` refuses writes by exact method `tools/call` and the `PUBLIC_MCP` allow-list. `start_session` and `recall` are reads. Batches are cut at 10.
+- `application/json` is not a CORS-simple content type, and the Worker never sends `Access-Control-Allow-Origin`.
+- Rate-limit keys use only a well-formed `CF-Connecting-IP` (IPv4, or IPv6 lowercased). `X-Forwarded-For` and `x-visitor-id` are ignored. There is no visitor-id feature to spoof. On Cloudflare that header is set by the edge.
+- Page strings from the graph or the model go through `esc()` or `textContent`. Links render only for `https://`. Public tools cannot set artifact URLs.
+- PageRank (rank flows along `DERIVED_FROM` toward claims), betweenness, and `shortestPath` match the seeded story. No algorithm bug turned up. Direct handoff ping-pong is still refused.
+- No `GEMINI_API_KEY` or `FALKORDB_URL` value is in the client bundle or the source. Both are Worker secrets. gitleaks stays in CI.
+- The scale benchmark's `Taint.correct(..., "fixed")` correctly started failing once sourceless claims lost the receipt bypass. The benchmark now runs the registered cascade query directly. The public `correct()` gate is unchanged.
+
+### Left unfixed
+
+- The demo is one shared sandbox. Anyone can reset it, and anyone can submit a correction whose value really is in the quote.
+- Natural-language prompt injection still works inside the allow-list. The model can hand off its own open tasks, write a misleading memo, or correct a claim to a number the quote actually contains.
+- A three-agent handoff cycle (A to B to C to A) is allowed. Only the immediate back-handoff is blocked.
+- The per-IP limiter is eventually consistent, and many IPv6 addresses are many buckets. The hard stop on model spend is the budget cap.
+- CSP keeps `'unsafe-inline'` for scripts and styles because the page is one file with inline handlers.
+- vis-network tooltips are HTML. The page only passes escaped relationship types.
+- Replay summaries are the recorded prose. If a step is refused live (Quill completing `redo-script` before Reel's handoff), the summary can claim work the graph refused.
+- An isolate that dies before `budget_finish` omits that run's tokens until the 45s lease expires. A second live run cannot start during the lease. One live run can still finish above the cap; output length is the model's own default (`gemini-3.5-flash-lite`).
+- The local stdio MCP server does not check `complete_task` ownership. That process is the trusted operator, not the public demo.
+- A public MCP batch can repeat PageRank up to 10 times. That loads FalkorDB. It does not call Gemini.
+- `GET /api/graph` still seeds when the count really is 0.
+
+### Verdict
+
+**Yes, safe to merge** for this synthetic public demo. It is not a multi-tenant product, and the shared graph is not private. Merge and any production deploy stay with the maintainers; this pass did neither.
+
+### Checks this pass
+
+- `python3 -m pytest`: 39 passed
+- `python3 -m mypy --strict`: clean (11 files)
+- `python3 -m ruff check` and `ruff format --check`: clean
+- `npm test` in `worker/`: RESP, HTML syntax, query invariants (35 keys), security tests
+- `worker/gen_queries.py` matches `worker/src/queries.js` and `worker/src/prompts.json`
