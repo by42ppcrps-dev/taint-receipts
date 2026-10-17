@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Taint + Receipts — a recall system for published content, on FalkorDB</title>
+<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Taint + Receipts — a recall system for published content, on FalkorDB</title>
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js" integrity="sha384-yxKDWWf0wwdUj/gPeuL11czrnKFQROnLgY8ll7En9NYoXibgg3C6NK/UDHNtUgWJ" crossorigin="anonymous"></script>
 <style>
 body{margin:0;background:#0b0d12;color:#e8eaf0;font:15px/1.4 system-ui;display:flex;height:100vh}
@@ -7,7 +7,7 @@ h1{font-size:22px;margin:0 0 4px}small{color:#8a93a6}button{display:block;width:
 button.r{background:#d1242f}button:disabled{opacity:.6;cursor:progress}button.busy::after{content:' · working…'}#banner{background:#3d2e00;border:1px solid #d29922;color:#ffd33d;border-radius:8px;padding:8px 10px;margin:10px 0;font-weight:700;font-size:13px}.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}#gtext{margin-top:10px}#gtext summary{cursor:pointer;color:#8a93a6}#gtext ul{font-size:12.5px;padding-left:18px}pre{white-space:pre-wrap;background:#141822;padding:10px;border-radius:8px;font-size:12.5px}
 #recall{display:none;background:#141822;border:1px solid #d1242f;border-radius:8px;padding:10px;margin:8px 0}#recall h3{margin:0 0 6px;font-size:15px}#recall table{width:100%;border-collapse:collapse;font-size:13px}#recall td{padding:4px 3px;border-top:1px solid #222a36}#recall td.n{text-align:right;font-variant-numeric:tabular-nums;color:#ffd33d;font-weight:700}#recall a{color:#58a6ff;text-decoration:none}
 h2{font-size:14px;margin:16px 0 4px;color:#8a93a6;text-transform:uppercase;letter-spacing:.05em}button.a{background:#8957e5}
-#trace{display:none;background:#141822;border:1px solid #8957e5;border-radius:8px;padding:10px;margin:8px 0;font-size:12.5px}#trace ol{padding-left:20px;margin:6px 0}#trace li{margin:4px 0}#trace code{color:#d2a8ff}#trace .res{color:#8a93a6;display:block;max-height:3.6em;overflow:hidden}
+#trace{display:none;background:#141822;border:1px solid #8957e5;border-radius:8px;padding:10px;margin:8px 0;font-size:12.5px}#trace ol{padding-left:20px;margin:6px 0}#trace li{margin:4px 0}#trace code{color:#d2a8ff}#trace{max-height:46vh;overflow:auto}#trace .res{color:#8a93a6;display:block;max-height:3.6em;overflow:hidden}
 #trace .memo{background:#0b0d12;border-left:3px solid #d29922;padding:6px 8px;margin:6px 0;white-space:pre-wrap}.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:9px;background:#30363d;margin-left:4px}
 .k{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 10px}
 </style></head><body><div id="g" role="img" aria-label="Provenance graph. A text version is in the sidebar under Graph as text."></div><div id="side">
@@ -19,6 +19,7 @@ h2{font-size:14px;margin:16px 0 4px;color:#8a93a6;text-transform:uppercase;lette
 <button class="a" onclick="go('agent',this)">2 · Run RecallAgent on “support says battery is 3.5 h, not 35”</button>
 <button class="a" onclick="go('session',this,{agent:'Reel'})">3 · New session: Reel picks up from graph memory</button>
 <button class="a" onclick="go('session',this,{agent:'Quill'})">4 · New session: Quill picks up (incl. Reel’s handoff)</button>
+<div id="trace"></div>
 <h2>Or run each graph tool by hand</h2>
 <button onclick="go('receipts',this)">Receipts: QA bot checks every claim’s quote</button>
 <button onclick="go('risk',this)">Risk: PageRank, most load-bearing claims</button>
@@ -29,8 +30,7 @@ h2{font-size:14px;margin:16px 0 4px;color:#8a93a6;text-transform:uppercase;lette
 <button onclick="go('requeue',this)">Re-queue redo tasks</button>
 <button onclick="go('briefing',this,{agent:'Reel'})">Reel’s session briefing (memory)</button>
 <button onclick="go('trust',this)">Trust ledger</button>
-<p><small>Read-only graph tools are also served to any MCP client at <code>POST /mcp</code> (JSON-RPC).</small></p>
-<div id="trace"></div><div id="recall"></div><pre id="out" aria-live="polite">Click 1, then 2–4.</pre>
+<p><small>Read-only graph tools are also served to any MCP client at <code>POST /mcp</code> (JSON-RPC).</small></p><div id="recall"></div><pre id="out" aria-live="polite">Click 1, then 2–4.</pre>
 <details id="gtext" open><summary>Graph as text (accessible equivalent)</summary><div id="gtextbody"></div></details></div>
 <script>
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -70,7 +70,7 @@ async function showTrace(res){const el=document.getElementById('trace');el.style
  el.innerHTML=head+'<ol id="tl"></ol>';const tl=document.getElementById('tl');
  for(const s of res.trace){unhl();hl(touched(s));const li=document.createElement('li');
   li.innerHTML='<code>'+esc(s.tool)+'</code>('+esc(JSON.stringify(s.args).slice(1,-1).slice(0,140))+')<span class="res">'+esc(brief(s))+'</span>'+(s.tool==='draft_recall_memo'?'<div class="memo"><b>Memo → '+esc(s.args.owner)+'</b>\n'+esc(s.args.text)+'</div>':'');
-  tl.appendChild(li);await new Promise(r=>setTimeout(r,550))}
+  tl.appendChild(li);li.scrollIntoView({block:"nearest"});await new Promise(r=>setTimeout(r,550))}
  const sp=res.trace.filter(s=>s.tool==='why_shortest').pop();if(sp){unhl();hl(touched(sp))}
  el.insertAdjacentHTML('beforeend','<p><b>Summary:</b> '+esc(res.summary)+'</p>')}
 fetch('/api/graph').then(r=>r.json()).then(g=>draw(g));
