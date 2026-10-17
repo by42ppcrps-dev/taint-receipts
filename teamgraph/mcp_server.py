@@ -47,8 +47,9 @@ def how_do_we(query: str) -> list[str]:
     return tg.how(query)
 @mcp.tool()
 def start_session(agent: str) -> dict:
-    """Briefing from the graph: owned open tasks, last handoff notes, and the next procedure step."""
-    return dict(tasks=tg.briefing(agent), next=tg.next_step(agent))
+    """Briefing from the graph for a fresh session: owned open tasks, last handoff notes, recall memos addressed
+    to this agent, its own recent episodes from earlier sessions, and the next procedure step."""
+    return dict(tasks=tg.briefing(agent), memos=tg.memos(agent), episodes=tg.episodes(agent), next=tg.next_step(agent))
 @mcp.tool()
 def complete_task(task: str) -> str:
     """Mark a task (e.g. 'redo-short') done; it drops out of start_session briefings."""
@@ -85,6 +86,23 @@ def requeue_tainted() -> list[dict]:
     """Create redo tasks for tainted artifacts, owned by the agent that produced them. Task id is stable:
     'redo-<artifact id>', usable with start_session, hand_off and complete_task. Idempotent."""
     return tt.requeue()
+@mcp.tool()
+def claim_risk() -> list[dict]:
+    """Graph algorithm (PageRank over DERIVED_FROM): rank claims by how load-bearing they are, with how many
+    artifacts and how much published reach sit downstream. Audit the top ones first."""
+    return tt.risk()
+@mcp.tool()
+def chokepoints(k: int = 5) -> list[dict]:
+    """Graph algorithm (betweenness centrality): artifacts that the most dependency paths run through."""
+    return tt.chokepoints(k)
+@mcp.tool()
+def why_shortest(artifact: str) -> list[dict]:
+    """Shortest DERIVED_FROM path from an artifact back to each corrected/refuted claim, with the exact source quote."""
+    return tt.why_shortest(artifact)
+@mcp.tool()
+def draft_recall_memo(owner: str, text: str, author: str = "RecallAgent") -> str:
+    """Store a recall memo for one owner in the graph, linked to the open redo tasks they own."""
+    return tg.memo(owner, text, author)
 @mcp.tool()
 def why_tainted(artifact: str) -> list[dict]:
     return tt.why(artifact)

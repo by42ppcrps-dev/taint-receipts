@@ -43,10 +43,28 @@ Q = {
  "why_tainted": """MATCH p=(x:Artifact {id:$id})-[:DERIVED_FROM*1..10]->(c:Claim) WHERE c.status IN ['corrected','refuted']
    OPTIONAL MATCH (c)-[r:CITES]->(s:Source)
    RETURN [n IN nodes(p) | coalesce(n.title, n.text)], c.reason, s.title, r.quote""",
+ # Graph algorithms as agent tools.
+ # Risk: PageRank over DERIVED_FROM (edges point child -> parent, so rank flows to the claims everything is built on),
+ # combined with the published audience downstream of each claim. High score = most load-bearing claim to audit first.
+ "risk": """CALL algo.pageRank(NULL, 'DERIVED_FROM') YIELD node, score
+   WITH node, score WHERE node:Claim
+   OPTIONAL MATCH (x:Artifact)-[:DERIVED_FROM*1..10]->(node)
+   WITH node, score, collect(DISTINCT x) AS xs
+   RETURN node.id, node.text, node.status, score, size(xs), reduce(s = 0, a IN xs | s + coalesce(a.reach, 0)) AS exposed
+   ORDER BY exposed DESC, score DESC""",
+ # Chokepoints: betweenness centrality on the provenance graph. Artifacts many dependency paths run through.
+ "chokepoints": """CALL algo.betweenness({relationshipTypes: ['DERIVED_FROM']}) YIELD node, score
+   WITH node, score WHERE node:Artifact AND score > 0
+   RETURN node.id, node.title, node.status, score ORDER BY score DESC LIMIT $lim""",
+ # Why (shortest): the shortest DERIVED_FROM path from an artifact to each bad claim, plus the source quote.
+ "why_shortest": """MATCH (x:Artifact {id:$id}), (c:Claim) WHERE c.status IN ['corrected','refuted']
+   WITH x, c, shortestPath((x)-[:DERIVED_FROM*1..10]->(c)) AS p WHERE p IS NOT NULL
+   OPTIONAL MATCH (c)-[r:CITES]->(s:Source)
+   RETURN [n IN nodes(p) | coalesce(n.title, n.text)], [n IN nodes(p) | n.id], c.reason, s.title, r.quote, length(p) ORDER BY length(p)""",
  "trust": """MATCH (a:Agent) OPTIONAL MATCH (a)-[:ASSERTED]->(c:Claim)
    WITH a, count(c) AS total, sum(CASE WHEN c.status IN ['refuted','corrected'] THEN 1 ELSE 0 END) AS bad
    RETURN a.name, total, bad, CASE WHEN total=0 THEN null ELSE toFloat(total-bad)/total END AS trust ORDER BY trust DESC""",
- "nodes": "MATCH (n) RETURN id(n), labels(n)[0], coalesce(n.title, n.text, n.name, n.id), coalesce(n.status,'')",
+ "nodes": "MATCH (n) RETURN id(n), labels(n)[0], coalesce(n.title, n.text, n.name, n.id), coalesce(n.status,''), coalesce(n.id, n.name)",
  "edges": "MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r)",
 }
 
@@ -88,9 +106,18 @@ class Taint:
         return dict(items=rows, total_reach=sum(r["reach"] for r in rows), live_urls=sum(1 for r in rows if r["url"]))
     def requeue(self): return [dict(agent=r[0], title=r[1], task=r[2]) for r in self.q("requeue")]
     def why(self, artifact): return [dict(path=r[0], reason=r[1], source=r[2], quote=r[3]) for r in self.q("why_tainted", id=artifact)]
+    def risk(self):
+        """PageRank + downstream published reach per claim: which claims are most load-bearing."""
+        return [dict(claim=r[0], text=r[1], status=r[2], pagerank=round(r[3], 4), downstream=r[4], exposed_reach=r[5]) for r in self.q("risk")]
+    def chokepoints(self, k=5):
+        """Betweenness centrality: artifacts that the most dependency paths run through."""
+        return [dict(id=r[0], title=r[1], status=r[2], betweenness=r[3]) for r in self.q("chokepoints", lim=k)]
+    def why_shortest(self, artifact):
+        """Shortest DERIVED_FROM path from an artifact to each corrected/refuted claim, with the source quote."""
+        return [dict(path=r[0], ids=r[1], reason=r[2], source=r[3], quote=r[4], hops=r[5]) for r in self.q("why_shortest", id=artifact)]
     def trust(self): return [dict(agent=r[0], claims=r[1], bad=r[2], trust=('unrated' if r[3] is None else round(r[3], 2))) for r in self.q("trust")]
     def snapshot(self):
-        return dict(nodes=[dict(id=r[0], label=r[1], name=r[2], status=r[3]) for r in self.q("nodes")],
+        return dict(nodes=[dict(id=r[0], label=r[1], name=r[2], status=r[3], key=r[4]) for r in self.q("nodes")],
                     edges=[dict(source=r[0], target=r[1], type=r[2]) for r in self.q("edges")])
 
 def connect(name=None):

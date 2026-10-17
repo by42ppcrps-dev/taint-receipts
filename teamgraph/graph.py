@@ -56,6 +56,14 @@ Q = {
    OPTIONAL MATCH (h:Handoff)-[:FOR]->(t) OPTIONAL MATCH (g:Agent)-[:GAVE]->(h)
    WITH t, h, g ORDER BY h.ts DESC WITH t, collect({from:g.name, note:h.note})[0] AS last
    RETURN t.id, t.title, t.status, last.from, last.note""",
+ # Recall memo for one owner: linked to every open redo task that owner holds, so the next session finds it.
+ "memo": """MATCH (a:Agent {name:$owner}) CREATE (m:Memo {id:$id, text:$text, author:$author, ts:$ts}) CREATE (a)-[:RECEIVED]->(m)
+   WITH a, m OPTIONAL MATCH (a)-[:OWNS]->(t:Task) WHERE t.status <> 'done'
+   FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | CREATE (m)-[:COVERS]->(t)) RETURN DISTINCT m.id""",
+ "memos_for": "MATCH (a:Agent {name:$agent})-[:RECEIVED]->(m:Memo) RETURN m.author, m.text, m.ts ORDER BY m.ts DESC LIMIT 3",
+ "episodes_for": "MATCH (a:Agent {name:$agent})-[:EXPERIENCED]->(e:Episode) RETURN e.session, e.text, e.ts ORDER BY e.ts DESC LIMIT 5",
+ # Last agent who handed this task off (used to refuse hand-back ping-pong).
+ "last_giver": "MATCH (g:Agent)-[:GAVE]->(h:Handoff)-[:FOR]->(:Task {id:$task}) RETURN g.name ORDER BY h.ts DESC LIMIT 1",
  "done": "MATCH (t:Task {id:$id}) SET t.status='done' RETURN t.id",
  "next_step": """MATCH (a:Agent {name:$agent})-[:OWNS]->(t:Task) WHERE t.status <> 'done'
    MATCH (p:Procedure)-[r:STEP]->(s:Step) WHERE toLower(t.title) CONTAINS toLower(p.trigger)
@@ -78,6 +86,9 @@ class TeamGraph:
     def source(self, id, title, url="", text=""): return self.q("source", id=id, title=title, url=url or "", text=text or "")
     def task(self, id, title, owner): return self.q("task", id=id, title=title, owner=owner)
     def handoff(self, from_agent, to_agent, task, note):
+        if from_agent == to_agent: raise ValueError("cannot hand a task to yourself")
+        last = self.q("last_giver", task=task)
+        if last and last[0][0] == to_agent: raise ValueError(f"{to_agent} just handed {task} to you; complete it instead of handing it back")
         r = self.q("handoff", from_agent=from_agent, to_agent=to_agent, task=task, note=note, id=_id(), ts=time.time())
         if not r: raise ValueError(f"{from_agent} does not own task {task}")
         return r[0][0]
@@ -91,6 +102,12 @@ class TeamGraph:
     def recall(self, q, k=5): return [dict(kind=r[0], who=r[1], text=r[2]) for r in self.q("recall", q=q, k=k)]
     def how(self, q): return [r[1] for r in self.q("how", q=q)]
     def briefing(self, agent): return [dict(task=r[0], title=r[1], status=r[2], from_agent=r[3], note=r[4]) for r in self.q("briefing", agent=agent)]
+    def memo(self, owner, text, author="RecallAgent"):
+        r = self.q("memo", owner=owner, text=text, author=author, id=_id(), ts=time.time())
+        if not r: raise ValueError(f"no agent {owner}")
+        return r[0][0]
+    def memos(self, agent): return [dict(author=r[0], text=r[1]) for r in self.q("memos_for", agent=agent)]
+    def episodes(self, agent): return [dict(session=r[0], text=r[1]) for r in self.q("episodes_for", agent=agent)]
     def complete(self, task): return self.q("done", id=task)
     def next_step(self, agent):
         r = self.q("next_step", agent=agent)
