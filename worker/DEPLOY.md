@@ -6,6 +6,7 @@ Cypher is generated from `teamgraph/taint.py` into `src/queries.js`, so there's 
 cd worker && npm i            # needs Node >= 22 (box: ~/.local/opt/node22)
 npx wrangler login            # Cloudflare account
 npx wrangler secret put FALKORDB_URL   # e.g. rediss://default:<password>@<host>:<port>  (FalkorDB Cloud)
+npx wrangler secret put GEMINI_API_KEY # optional: live agent runs; without it the demo replays recorded runs
 npx wrangler deploy
 ```
 - The first `GET /api/graph` seeds the synthetic demo if the graph is empty.
