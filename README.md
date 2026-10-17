@@ -1,15 +1,36 @@
-# Taint + Receipts — a recall system for published content
+# Taint + Receipts: a recall system for published content
 
-> One wrong number. Every post, Short, email and link-preview image it reached, who owns each one, and roughly how many people saw it. Fix the most-viewed first.
+> One wrong number. Every post, Short, email and link-preview image it reached, who owns each one, and roughly how many people saw it. An agent fixes the most-viewed first, and the team picks the work up next session from graph memory.
 
-Content teams (human or AI agents) ship posts, Shorts, emails, landing pages and link-preview images built on top of each other. When one researcher misreads "3.5 hours" as "35 hours", the number spreads into everything downstream, and some of it is already live. **Taint + Receipts** stores every claim, source quote and published artifact in **FalkorDB** and treats a correction like a product recall:
+![Demo: the RecallAgent's tool calls light up the provenance graph](docs/demo.gif)
 
-1. **Receipts.** A QA agent checks that each claim's number actually appears in the source quote it cites, and refutes claims with no source.
-2. **Taint.** Correcting one claim runs a bounded variable-length `DERIVED_FROM*1..10` traversal that marks every downstream artifact up to ten hops away as tainted, with its hop distance.
-3. **Recall plan (impact-weighted).** Every tainted *published* item comes back with its owner, live URL and estimated reach, sorted most-viewed first, plus the total estimated audience. In the demo the YouTube Short (~27k views) is fixed first and the FAQ is untouched.
-4. **Re-queue.** Each tainted artifact becomes a redo task with a stable id (`redo-<artifact id>`), owned by whoever produced it. Re-running it is idempotent.
-5. **Why.** "Why is the Short wrong?" returns the full path Short → script → blog → brief → claim → source quote.
-6. **Trust ledger.** Each agent's share of refuted or corrected claims, computed from the graph.
+> **Try it in 60 seconds:** open **https://taint-receipts.lumegridai.workers.dev**
+> 1. Click **1 · Reset**.
+> 2. Click **2 · Run RecallAgent**. Gemini decides each step and calls graph tools over MCP. Watch every tool call light up the path it followed, then read the recall memo it writes for each owner.
+> 3. Click **3 · New session: Reel**, then **4 · New session: Quill**. Each agent starts with no memory except the graph. It finds its redo tasks and memos, fixes what's in its role, hands the rest off, and logs what it did.
+>
+> All data is synthetic. Point any MCP client at `POST https://taint-receipts.lumegridai.workers.dev/mcp` to use the read-only graph tools yourself.
+
+Content teams (human or AI agents) ship posts, Shorts, emails, landing pages and link-preview images built on top of each other. When a researcher misreads "3.5 hours" as "35 hours", the number spreads into everything downstream, and some of it is already live. **Taint + Receipts** stores every claim, source quote and published artifact in **FalkorDB**. The **RecallAgent** treats a correction like a product recall:
+
+1. **Receipts.** It checks that each claim's number actually appears in the source quote it cites, and it refutes claims with no source.
+2. **Risk (PageRank).** `claim_risk` runs `algo.pageRank` over `DERIVED_FROM` and adds up the published reach downstream of each claim, so the agent knows how load-bearing the bad claim is. `chokepoints` runs `algo.betweenness` to find the artifacts most dependency paths run through.
+3. **Taint.** Correcting a claim runs a bounded `DERIVED_FROM*1..10` traversal that marks every downstream artifact as tainted, with its hop distance. The agent may only correct a claim to a value that one of its cited sources actually contains, so a correction needs a receipt too.
+4. **Recall plan.** Every tainted *published* item comes back with its owner, live URL and estimated reach, most-viewed first.
+5. **Why (shortestPath).** "Why is the Short wrong?" returns the shortest path Short → script → blog → brief → claim → the exact source quote.
+6. **Re-queue + memos.** Each tainted artifact becomes a redo task (`redo-<artifact id>`) owned by its producer. The agent writes one recall memo per owner, stores it in the graph linked to their tasks, and logs an episode.
+7. **Memory across sessions.** In a new session an agent calls `start_session` and gets back its open tasks, handoff notes, memos and earlier episodes, all from the graph. It completes its own work and hands the rest off. The graph refuses handoff ping-pong and handing a task to yourself.
+8. **Trust ledger.** Each agent's share of refuted or corrected claims, computed from the graph.
+
+## The agent loop
+```
+Gemini (gemini-3.5-flash-lite) ──function calls──▶ MCP tools/call ──▶ Cypher on FalkorDB
+        ▲                                                  │
+        └──────────── tool results (graph rows) ◀──────────┘
+```
+- **Locally:** `python -m teamgraph.agent recall "..."` runs Gemini against the real stdio MCP server (`teamgraph.mcp_server`). Every tool call is an MCP `tools/call`.
+- **Live demo:** the Cloudflare Worker serves the same tool set as a stateless MCP JSON-RPC endpoint (`/mcp`, read-only for the public). Its agent calls those tools through the same `rpc()` handler.
+- **Guardrails, enforced in code:** each mode gets only its own tools, and session agents can act only as themselves. Corrections need a source receipt. Tool calls are capped per run, inputs are schema-validated and length-capped, and correction text is treated as untrusted data. LLM spend is priced and capped (`LLM_CAP_USD`, default $0.50 total). After that, or during the 20-second cooldown between live runs, the demo **replays a recorded Gemini run**: the same tool calls, executed live on FalkorDB, and labelled as a replay in the UI. See `docs/SECURITY-REVIEW.md`.
 
 ## Scale: measured on embedded FalkorDB (FalkorDBLite, this box)
 `python -m teamgraph.scale 1000 25` seeds 1,000 claims and 25,000 synthetic published artifacts with chains up to 10 hops deep, then times the cascade query.
@@ -21,51 +42,29 @@ Content teams (human or AI agents) ship posts, Shorts, emails, landing pages and
 
 Numbers are from one run on a shared Linux box (14 Oct 2026). The demo video's terminal panel shows a later run of the same command (p50 0.62 ms, max 9.01 ms, correct + recall 14.93 ms). Your hardware will differ; rerun the script to check.
 
-## Related work, and how this differs
-This isn't the first system to propagate corrections through derived claims. We checked these on 14 Oct 2026:
-- **Memorant** (github.com/tier4research/memorant): agent memory with a `correct_claim()` that flags everything derived from a claim for review. Its unit is the memory or claim inside an agent's knowledge store.
-- **Lattice** (github.com/thunderstornX/lattice): a signed claim DAG with agent attribution and a "revocation waterfall" when a claim is revoked. Its strength is cryptographic provenance.
-- Research on provenance-native audit (including retraction propagation), plus claim-to-source checkers such as ProvenanceGuard and TRACER.
-
-What we focus on that we didn't see in those: **shipped artifacts across media** (posts, Shorts, captions, emails, link-preview images) as first-class nodes, each with an **owner, live URL and estimated reach**, and a **recall plan ordered by audience size**. We also run it on FalkorDB at tens of thousands of nodes and expose it over MCP. If you need signed provenance, Lattice does more there. If you need agent memory correction, look at Memorant.
-
-All demo data is synthetic, and reach figures are made-up estimates: a fictional product, "Acme Notes", and fictional agents Scout, Quill, Reel and Lens.
-
 ## Tracks entered
-- **Company Brain:** one graph of what the company has publicly claimed, which documents back it, and who made it.
-- **Agent Memory and Coordination:** shared, persistent claim state across agents and sessions, with handoffs via re-queued tasks.
-- **Agents That Act on Connected Data:** agents act (taint, re-queue) on multi-hop traversal results.
+- **Agents That Act on Connected Data (primary):** a Gemini agent picks MCP graph tools (multi-hop traversal, PageRank, betweenness, shortestPath), acts on what the graph shows (correct, taint, re-queue, memo) and explains each answer with a path.
+- **Agent Memory and Coordination:** episodic memory (episodes per session), semantic memory (facts), procedural memory (procedures), shared state and handoffs between agents. Session 2 agents start from graph memory alone; see buttons 3 and 4 and `tests/test_agent.py`.
+- **Company Brain (narrow scope, stated honestly):** we don't ingest docs, tickets or chats. Our "brain" is narrower: one graph of what a company has *publicly claimed*, which document backs each claim, who made it, and who owns each fix, with every answer traced to its source quote.
 
 ## Setup (local)
 ```bash
-python3 -m venv .venv && .venv/bin/pip install falkordblite falkordb "mcp[cli]" pytest
-.venv/bin/python -m pytest -q          # 20 tests (incl. MCP integration over stdio)
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest -q          # tests incl. MCP over stdio, graph algorithms, invariants, scripted agent runs
 .venv/bin/python -m teamgraph.scale 1000 25   # seed ~26k nodes and time the cascade
-.venv/bin/python -m teamgraph.web      # demo UI at http://localhost:8787
+.venv/bin/python -m teamgraph.web      # demo UI at http://localhost:8787 (graph tool buttons; the agent runs from the CLI)
 .venv/bin/python -m teamgraph.mcp_server   # MCP server (stdio) for agents
+GEMINI_API_KEY=... TEAMGRAPH_GRAPH=demo .venv/bin/python -m teamgraph.agent --seed recall "Support says battery life is 3.5 hours, not 35"
+GEMINI_API_KEY=... TEAMGRAPH_GRAPH=demo .venv/bin/python -m teamgraph.agent session Reel
 ```
 - With no `FALKORDB_URL` set, it uses embedded FalkorDB (FalkorDBLite) at `$TEAMGRAPH_DB` (default `/tmp/teamgraph.db`).
 - To use Docker or FalkorDB Cloud instead, run `docker run -p 6379:6379 falkordb/falkordb` and set `FALKORDB_URL=redis://localhost:6379` (or your Cloud URL).
+- One agent run costs about 20k input tokens on `gemini-3.5-flash-lite`, roughly $0.01.
 
-### Graphs (explicit configuration)
-| Process | Graph name | Set with | Contents |
-|---|---|---|---|
-| MCP server (`teamgraph.mcp_server`): memory, handoff **and** taint tools | `teamgraph` | `TEAMGRAPH_GRAPH` | the agents' real working graph; one graph object shared by all tools |
-| Local demo UI (`teamgraph.web`) | `taint_demo` | `TAINT_DEMO_GRAPH` | synthetic Acme Notes story; **Reset wipes it** |
-| Public Worker demo (`worker/`) | `taint_demo` | `DEMO_GRAPH` (wrangler var) | same synthetic story, on FalkorDB Cloud |
-| Benchmark (`teamgraph.scale`) | `taint_scale` | (argument) | 26k synthetic nodes |
-
-The demo graphs are sandboxes on purpose: their Reset deletes everything in the graph, so never point `TAINT_DEMO_GRAPH`/`DEMO_GRAPH` at the agents' graph. `teamgraph.taint.connect()` and `teamgraph.graph.connect()` with no argument both resolve to `$TEAMGRAPH_GRAPH` (default `teamgraph`).
-
-MCP client config:
-```json
-{"mcpServers":{"taint":{"command":".venv/bin/python","args":["-m","teamgraph.mcp_server"],"env":{"TEAMGRAPH_DB":"/tmp/taint.db","TEAMGRAPH_GRAPH":"teamgraph"}}}}
-```
-MCP tools (all on the one `$TEAMGRAPH_GRAPH` graph):
-- Taint tools: `assert_claim`, `register_artifact(agent, id, kind, title, derived_from, url, reach, owner)`, `check_receipts`, `correct_claim`, `recall_plan`, `requeue_tainted`, `why_tainted`, `trust_ledger`
-- Shared memory and handoff tools: `add_source(id, title, url, text)`, `remember_episode`, `learn_fact`, `save_procedure`, `create_task`, `hand_off`, `record_decision`, `why_did_we`, `recall`, `how_do_we`, `start_session`, `complete_task`
-- `add_source` stores the source **text** as well as its URL; `check_receipts` verifies each claim's quote and number against that text, so a URL-only source can't pass a receipt check. Empty `url`/`text` never wipes a stored value.
-- `requeue_tainted` returns `[{agent, title, task}]`; `task` is `redo-<artifact id>`, the id `start_session`, `hand_off` and `complete_task` use.
+### Correctness is enforced by checks, not by convention
+- **One query module.** `teamgraph/cypher.py` (Python) and `worker/src/cypher.js` (Worker) are the only code that talks to FalkorDB. Queries are constants registered at import, every value is a parameter, and `run()` refuses anything unregistered. `tests/test_invariants.py` and `worker/test/invariants.test.mjs` fail the build if any other file calls `.query(` or builds Cypher from strings.
+- **Validated inputs:** pydantic models and constrained types (`teamgraph/models.py`) on every MCP tool and the local UI, and schema validation on every Worker tool call.
+- **CI** (`.github/workflows/ci.yml`) runs on every push and PR: ruff lint and format, `mypy --strict`, pytest, Worker tests, a gitleaks scan over the full history, pip-audit, npm audit, and a Worker bundle check.
 
 ## Graph data model
 ```
@@ -80,9 +79,25 @@ MCP tools (all on the one `$TEAMGRAPH_GRAPH` graph):
 (:Procedure)-[:STEP {order}]->(:Step)
 (:Agent)-[:GAVE]->(:Handoff)-[:TO]->(:Agent); (:Handoff)-[:FOR]->(:Task)
 (:Agent)-[:DECIDED]->(:Decision)-[:BASED_ON]->(:Source); (:Decision)-[:SUPERSEDES]->(:Decision)
+(:Agent)-[:RECEIVED]->(:Memo {text, author})-[:COVERS]->(:Task)
 ```
 
 ## Core Cypher
+Graph algorithms as agent tools (FalkorDB `algo.*` procedures and `shortestPath`):
+```cypher
+// claim_risk: PageRank over the provenance graph + the published reach downstream of each claim
+CALL algo.pageRank(NULL, 'DERIVED_FROM') YIELD node, score
+WITH node, score WHERE node:Claim
+OPTIONAL MATCH (x:Artifact)-[:DERIVED_FROM*1..10]->(node)
+WITH node, score, collect(DISTINCT x) AS xs
+RETURN node.id, score, size(xs), reduce(s = 0, a IN xs | s + coalesce(a.reach, 0)) AS exposed ORDER BY exposed DESC
+// chokepoints: betweenness centrality, which artifacts most dependency paths run through
+CALL algo.betweenness({relationshipTypes: ['DERIVED_FROM']}) YIELD node, score
+// why_shortest: the shortest provenance path from a published item back to the bad claim
+MATCH (x:Artifact {id:$id}), (c:Claim) WHERE c.status IN ['corrected','refuted']
+WITH x, c, shortestPath((x)-[:DERIVED_FROM*1..10]->(c)) AS p WHERE p IS NOT NULL
+OPTIONAL MATCH (c)-[r:CITES]->(s:Source) RETURN [n IN nodes(p) | n.id], c.reason, s.title, r.quote
+```
 Taint cascade (correction blast radius):
 ```cypher
 MATCH (bad:Claim {id:$id}) SET bad.status='corrected', bad.fixed_value=$value, bad.reason=$reason
@@ -123,41 +138,20 @@ RETURN a.name, total, bad, CASE WHEN total=0 THEN null ELSE toFloat(total-bad)/t
 ```
 The procedure-driven next step, episodic and semantic recall, and handoff queries are in `teamgraph/graph.py` (dict `Q`).
 
-## Tests
-`tests/test_taint.py` covers:
-- receipts catching a dropped decimal and an unsourced claim
-- a 10-artifact multi-hop cascade, with the FAQ correctly untouched
-- the why-path back to the source quote
-- re-queueing to the producing agent, with stable, idempotent `redo-<artifact>` task ids
-- the trust ledger (agents with zero claims show `unrated`, not 1.0)
-- the recall plan (most-viewed first, owner, reach, live-URL count)
-- seeding over 1,000 nodes and benchmarking the cascade
-- persistence across sessions
-
-`tests/test_teamgraph.py` covers handoffs, decision tracing with superseding, recall, procedure-driven next steps, and persistence.
-
-`tests/test_mcp_integration.py` runs the MCP tool functions on one configured graph: source (URL, then text) → claim → artifact (url/reach/owner) → receipts → correction → recall plan → requeue (twice, same ids) → `start_session` → `hand_off` → `complete_task`, plus memory `recall` and `why_tainted`. A second test starts `python -m teamgraph.mcp_server` as a real stdio MCP server and drives the same path through an MCP client.
-
-## Why a graph
-"Everything downstream of this claim, up to 10 hops" is a bounded variable-length traversal (`DERIVED_FROM*1..10`): one Cypher pattern instead of a recursive query you'd have to write and tune yourself. A vector store finds similar text, not dependency paths. The negative result matters too: the FAQ isn't tainted because no path exists.
-
-Built new during Graph Hacks (build window opened Oct 14, 2026 12:31 PM MDT / 18:31 UTC). The first file (`.venv`) was created at 2:00 PM MDT and the first commit is 2:06:57 PM MDT (20:06:57 UTC) in our original local history. This public repo is a clean export of that history made at 10:55 PM MDT, so its first commit shows 22:55. `docs/HISTORY.md` maps the original commits to the export and lists the evidence and its limits.
-
 ## Live demo
-**https://taint-receipts.lumegridai.workers.dev** — click *Receipts*, *Mark 35 h claim corrected → taint downstream*, *Recall plan*, *Why*, *Trust*. All demo data is synthetic. It is a **shared public demo, for demonstration only**: one sandbox graph (`taint_demo`), no login and no per-visitor isolation, so anyone's Reset/Correct/Re-queue affects everyone and it resets often. `POST /api/reset` re-seeds it. It is not a multi-tenant service; run it locally (`python -m teamgraph.web`) for a private copy.
+**https://taint-receipts.lumegridai.workers.dev** is a shared public demo with synthetic data. One sandbox graph (`taint_demo`) has no login and no per-visitor isolation, so anyone's actions affect everyone. Reset has a 15-second cooldown, each visitor is rate-limited, and the LLM budget is capped. Run it locally for a private copy.
 
 ## Architecture
 ```
-browser (web/, vis-network graph view + text equivalent)
-   │  fetch /api/{graph,reset,receipts,correct,recall,why,trust,requeue}
+browser (web/, vis-network graph view + agent trace + text equivalent)
+   │  POST /api/{reset,agent,session,receipts,risk,chokepoints,correct,recall,why,requeue,briefing,trust}   (JSON only)
    ▼
-Cloudflare Worker (worker/src) ── RESP over TCP (cloudflare:sockets) ──▶ FalkorDB Cloud
-   (GRAPH.QUERY with the Cypher in teamgraph/)
+Cloudflare Worker (worker/src) ── rate limits, cooldowns, LLM budget (meta graph) ── Gemini API
+   │  tools.js: MCP tool registry + rpc()   ·   /mcp: public read-only MCP (JSON-RPC)
+   ▼  cypher.js: the only query path ── RESP over TCP (cloudflare:sockets) ──▶ FalkorDB Cloud
 
-agents ── MCP server (teamgraph/mcp_server.py) ──▶ one graph: $TEAMGRAPH_GRAPH (default "teamgraph")
-local dev / tests ── FalkorDBLite (embedded) or falkordb/falkordb Docker
+agents ── MCP stdio (teamgraph/mcp_server.py) ──▶ teamgraph/cypher.py ──▶ FalkorDB / FalkorDBLite
 ```
-In the MCP server, the memory/handoff tools and the taint tools use **one graph** (`$TEAMGRAPH_GRAPH`, default `teamgraph`): `add_source` (with `text`) feeds `check_receipts`, `register_artifact` takes `url`, `reach` and `owner` for the recall plan, and `requeue_tainted` creates `redo-<artifact>` tasks that `start_session` and `hand_off` see. `tests/test_mcp_integration.py` exercises that path end to end. The public Worker demo deliberately uses a separate sandbox graph (`taint_demo`) seeded with the synthetic story; it runs the same Cypher (generated from `teamgraph/taint.py`) but does not expose the memory tools. Every agent action is a Cypher write; every answer (taint set, recall plan, why-path, trust) is a Cypher read.
 
 ## Deploy
 See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_URL && npx wrangler deploy`. The only secret is `FALKORDB_URL`; it is never committed.
@@ -168,11 +162,24 @@ See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_
 
 The UI clips are real screen recordings of the app running against FalkorDB. The rendered MP4s aren't committed (size). Everything that goes into a render is: `video/rm/src` (Remotion composition, captions, timing marks, durations), `video/rm/public/ui.mp4` (the exact screen recording used), `video/audio/s01.wav`–`s13.wav` (the exact voice segments), `video/lines.json` (the narration text) and `video/RENDER-INPUTS.sha256` (hashes of all of them). See `video/REBUILD.md` for how to re-render from these files byte-for-byte inputs, or to recreate them from scratch.
 
+## Related work, and how this differs
+This isn't the first system to propagate corrections through derived claims. We checked these on 14 Oct 2026:
+- **Memorant** (github.com/tier4research/memorant): agent memory with a `correct_claim()` that flags everything derived from a claim for review. Its unit is the memory or claim inside an agent's knowledge store.
+- **Lattice** (github.com/thunderstornX/lattice): a signed claim DAG with agent attribution and a "revocation waterfall" when a claim is revoked. Its strength is cryptographic provenance.
+- Research on provenance-native audit (including retraction propagation), plus claim-to-source checkers such as ProvenanceGuard and TRACER.
+
+What we focus on that we didn't see in those: **shipped artifacts across media** (posts, Shorts, captions, emails, link-preview images) as first-class nodes, each with an **owner, live URL and estimated reach**, and a **recall plan ordered by audience size**. We also run it on FalkorDB at tens of thousands of nodes and expose it over MCP. If you need signed provenance, Lattice does more there. If you need agent memory correction, look at Memorant.
+
+All demo data is synthetic, and reach figures are made-up estimates: a fictional product, "Acme Notes", and fictional agents Scout, Quill, Reel and Lens.
+
 ## AI tool use disclosure
 - **Code, docs and video pipeline:** written by AI agents. The build agent was LumeGrid's Grok Bot agent, working on a Linux box at the direction of LumeGrid's founder, Matt Brady, who chose the hackathon, approved the scope and controls publication. A second AI agent (Pika) did QA review of the code, bundle and videos. We are not claiming a line-by-line human code review.
 - **Voiceover:** Google Gemini TTS (`gemini-3.8-flash-tts`, prebuilt voice Puck), composed with Remotion and loudness-normalized to -14 LUFS. Evidence in this repo: `video/tts.py` (the exact request), `video/lines.json` (the text that was voiced), the `video/audio/*.wav` segments, and `video/tts-calls.public.jsonl`, a sanitized copy of our local TTS call log that keeps only the UTC time and scene id of each call (no keys, request bodies or responses). The raw local log stays out of the repo.
 - **Demo data:** every agent, claim, source, URL (`*.example`) and reach number in the demo is synthetic. Nothing in the demo is customer or real-campaign data.
-- **The product itself** makes no LLM calls: receipts, taint, recall and trust are deterministic Cypher over FalkorDB.
+- **The product:** the RecallAgent and the session agents use Gemini (`gemini-3.5-flash-lite`) to choose tools. Receipts, taint, risk, recall, why-paths and trust are deterministic Cypher over FalkorDB.
 
 ## License
 MIT — see `LICENSE`.
+
+## Build timing
+Built new during Graph Hacks (build window opened Oct 14, 2026 12:31 PM MDT / 18:31 UTC). The first file (`.venv`) was created at 2:00 PM MDT and the first commit is 2:06:57 PM MDT (20:06:57 UTC) in our original local history. This public repo is a clean export of that history made at 10:55 PM MDT, so its first commit shows 22:55. `docs/HISTORY.md` maps the original commits to the export and lists the evidence and its limits.

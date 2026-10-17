@@ -1,0 +1,172 @@
+{
+ "model": "gemini-3.5-flash-lite",
+ "recall": {
+  "summary": "I have successfully processed the correction for claim `c-battery`, changing the incorrect battery life from 35 to 3.5 hours, and triggered the necessary cascades, task re-queues, and owner recall memos across the graph. All tainted downstream artifacts for Quill and Reel have been identified, tasked for redo, and documented.",
+  "trace": [
+   {
+    "tool": "check_receipts",
+    "args": {}
+   },
+   {
+    "tool": "claim_risk",
+    "args": {}
+   },
+   {
+    "tool": "correct_claim",
+    "args": {
+     "reason": "Support says battery life is 3.5 hours, not 35",
+     "claim": "c-battery",
+     "value": "3.5"
+    }
+   },
+   {
+    "tool": "recall_plan",
+    "args": {}
+   },
+   {
+    "tool": "why_shortest",
+    "args": {
+     "artifact": "short"
+    }
+   },
+   {
+    "tool": "requeue_tainted",
+    "args": {}
+   },
+   {
+    "tool": "draft_recall_memo",
+    "args": {
+     "owner": "Quill",
+     "text": "Quill owner memo: Tainted items include Landing page hero (reach 18500), X launch post (reach 12100), Link preview image (reach 9300), Waitlist email (reach 6400), Launch blog post (reach 4200), X reply thread (reach 1800), and Launch brief (reach 0). Wrong value: 35 hours. Correct value: 3.5 hours. Source quote: 'Battery life: 3.5 hours' (Acme Notes spec sheet)."
+    }
+   },
+   {
+    "tool": "draft_recall_memo",
+    "args": {
+     "text": "Reel owner memo: Tainted items include YouTube Short (reach 27400), Short captions (reach 0), and 30s Short script (reach 0). Wrong value: 35 hours. Correct value: 3.5 hours. Source quote: 'Battery life: 3.5 hours' (Acme Notes spec sheet).",
+     "owner": "Reel"
+    }
+   },
+   {
+    "tool": "remember_episode",
+    "args": {
+     "session": "s1",
+     "text": "RecallAgent identified c-battery as the refuted claim, corrected its value to 3.5, determined provenance for the top-reaching YouTube Short, re-queued 10 tainted artifact tasks, and wrote recall memos for Quill and Reel.",
+     "task": "c-battery",
+     "agent": "RecallAgent"
+    }
+   }
+  ]
+ },
+ "session": {
+  "Reel": {
+   "summary": "I have completed the tasks within my role\u2014updating both the YouTube Short and its captions with the corrected battery life value of 3.5 hours. Additionally, I handed off the script revision task to Quill, as scriptwriting falls outside my video and captions responsibilities.",
+   "trace": [
+    {
+     "tool": "start_session",
+     "args": {
+      "agent": "Reel"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-captions"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-short"
+     }
+    },
+    {
+     "tool": "hand_off",
+     "args": {
+      "to_agent": "Quill",
+      "task": "redo-script",
+      "from_agent": "Reel",
+      "note": "Please redo the 30s Short script using the corrected value of 3.5 hours for battery life."
+     }
+    },
+    {
+     "tool": "remember_episode",
+     "args": {
+      "session": "s2",
+      "agent": "Reel",
+      "task": "redo-captions, redo-short, redo-script",
+      "text": "Completed redo-captions and redo-short using the correct 3.5 hours battery life value, and handed off redo-script to Quill since scriptwriting is outside my role."
+     }
+    }
+   ]
+  },
+  "Quill": {
+   "summary": "I have successfully started my session, reviewed the memo regarding the battery life correction to 3.5 hours, and completed all assigned copywriting redo tasks as well as the script task handed to me by Reel. All tasks have been updated and logged appropriately.",
+   "trace": [
+    {
+     "tool": "start_session",
+     "args": {
+      "agent": "Quill"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-email"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-landing"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-blog"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-script"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-og"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-brief"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-x1"
+     }
+    },
+    {
+     "tool": "complete_task",
+     "args": {
+      "task": "redo-x2"
+     }
+    },
+    {
+     "tool": "remember_episode",
+     "args": {
+      "task": "all-redo-tasks",
+      "text": "I started my session, read the memo regarding the battery life correction from 35 hours to 3.5 hours, and completed all open copywriting tasks (redo-email, redo-landing, redo-blog, redo-og, redo-brief, redo-x1, redo-x2) as well as the teammate task redo-script handed to me by Reel.",
+      "session": "s2",
+      "agent": "Quill"
+     }
+    }
+   ]
+  }
+ }
+}

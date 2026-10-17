@@ -5,5 +5,20 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "../web"
 binding = "ASSETS"
-run_worker_first = ["/api/*"]
+run_worker_first = ["/api/*", "/mcp"]
 # Secret: wrangler secret put FALKORDB_URL   (rediss://user:pass@host:port)
+
+# Per-visitor rate limits (Workers Rate Limiting binding). API: 60 req/min; agent runs: 4/min.
+[[ratelimits]]
+name = "RL_API"
+namespace_id = "7101"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "RL_AGENT"
+namespace_id = "7102"
+simple = { limit = 4, period = 60 }
+
+[vars]
+LLM_CAP_USD = "0.5"   # total live Gemini spend for the public demo; after that the agent replays a recorded run
+# Secret: wrangler secret put GEMINI_API_KEY
