@@ -66,7 +66,7 @@ def test_recall_then_new_sessions_remember_and_hand_off(t):
         [("complete_task", {"task": "redo-script"})], "Done."]), log=lambda *_: None))
     b3 = s3["trace"][0]["result"]
     assert any(x["task"] == "redo-script" and x["from_agent"] == "Reel" for x in b3["tasks"])
-    assert "error" in s3["trace"][1]["result"]                     # ping-pong refused by the graph rule
+    assert "refused" in str(s3["trace"][1]["result"])            # ping-pong refused by the graph rule
     g = t.g
     assert g.query("MATCH (t:Task {id:'redo-script'}) RETURN t.status").result_set[0][0] == "done"
     assert g.query("MATCH (t:Task {id:'redo-captions'}) RETURN t.status").result_set[0][0] == "done"

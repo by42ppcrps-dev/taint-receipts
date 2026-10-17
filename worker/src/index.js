@@ -1,5 +1,7 @@
 import { Falkor } from "./falkor.js";
 import { Q } from "./queries.js";
+import { TOOLS, rpc, receipts } from "./tools.js";
+import { runAgent } from "./agent.js";
 // Public demo sandbox graph (synthetic, shared, reset often). Override with the DEMO_GRAPH var; never point it at agent memory.
 let G = "taint_demo";
 const NUM = /\d+(?:\.\d+)?/g;
@@ -25,39 +27,37 @@ async function seed(db) {
   for (const [agent, id, kind, title, from, url, reach] of arts) { await q("artifact", { agent, id, kind, title, url, reach, owner: agent }); for (const parent of from) await q("derive", { child: id, parent }); }
   return { ok: 1 };
 }
-async function receipts(db) {
-  const out = [];
-  for (const [cid, text, value, agent, sid, stext, quote] of await db.query(G, Q.receipts)) {
-    let why = null; const nums = (quote || stext || "").match(NUM) || [];
-    if (sid == null) why = "no source cited";
-    else if (quote && !(stext || "").includes(quote)) why = `quote not found in ${sid}`;
-    else if (!nums.includes(value)) why = `said ${value}, source says ${nums.join(", ") || "nothing numeric"}`;
-    if (why) { await db.query(G, Q.flag, { id: cid, status: "refuted", reason: why }); out.push({ claim: cid, agent, text, reason: why }); }
-  }
-  return out;
-}
 async function snapshot(db) {
-  return { nodes: (await db.query(G, Q.nodes)).map(r => ({ id: r[0], label: r[1], name: r[2], status: r[3] })),
+  return { nodes: (await db.query(G, Q.nodes)).map(r => ({ id: r[0], label: r[1], name: r[2], status: r[3], key: r[4] })),
            edges: (await db.query(G, Q.edges)).map(r => ({ source: r[0], target: r[1], type: r[2] })) };
 }
+const T = (name, args) => async (db, b) => TOOLS[name].f(db, G, args ? args(b) : b);
 const A = {
-  reset: seed, receipts,
-  correct: async (db, b) => (await db.query(G, Q.correct, { id: b.claim || "c-battery", value: b.value || "3.5", reason: b.reason || "decimal dropped" })).map(r => ({ id: r[0], kind: r[1], title: r[2], hops: r[3] })),
-  requeue: async db => (await db.query(G, Q.requeue)).map(r => ({ agent: r[0], title: r[1], task: r[2] })),
-  recall: async db => { const items = (await db.query(G, Q.recall)).map(r => ({ id: r[0], kind: r[1], title: r[2], reach: Number(r[3]), url: r[4], owner: r[5], agent: r[6] }));
-    return { items, total_reach: items.reduce((a, x) => a + x.reach, 0), live_urls: items.filter(x => x.url).length }; },
-  why: async (db, b) => (await db.query(G, Q.why_tainted.replace("[n IN nodes(p) | coalesce(n.title, n.text)]", "reduce(s='', n IN nodes(p) | s + coalesce(n.title, n.text) + '|~|')"), { id: b.artifact || "short" })).map(r => ({ path: String(r[0]).split("|~|").slice(0, -1), reason: r[1], source: r[2], quote: r[3] })),
-  trust: async db => (await db.query(G, Q.trust)).map(r => ({ agent: r[0], claims: r[1], bad: Number(r[2]), trust: r[3] == null ? "unrated" : Math.round(Number(r[3]) * 100) / 100 })),
+  reset: seed, receipts: db => receipts(db, G),
+  correct: T("correct_claim", b => ({ claim: b.claim || "c-battery", value: b.value || "3.5", reason: b.reason || "decimal dropped" })),
+  requeue: T("requeue_tainted"), recall: T("recall_plan"), trust: T("trust_ledger"),
+  risk: T("claim_risk"), chokepoints: T("chokepoints", b => ({ k: b.k || 5 })),
+  why: T("why_shortest", b => ({ artifact: b.artifact || "short" })),
+  why_all: T("why_tainted", b => ({ artifact: b.artifact || "short" })),
+  briefing: T("start_session", b => ({ agent: b.agent || "Reel" })),
+  agent: (db, b, env) => runAgent(db, G, env, "recall", b.correction ? String(b.correction).slice(0, 300) : undefined),
+  session: (db, b, env) => runAgent(db, G, env, "session", ["Reel", "Quill", "Scout", "Lens"].includes(b.agent) ? b.agent : "Reel"),
 };
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     G = env.DEMO_GRAPH || "taint_demo";
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
+    if (!url.pathname.startsWith("/api/") && url.pathname !== "/mcp") return env.ASSETS.fetch(req);
     if (!env.FALKORDB_URL) return Response.json({ error: "FALKORDB_URL secret not set" }, { status: 503 });
     const db = new Falkor(env.FALKORDB_URL);
     try {
       await db.open();
+      if (url.pathname === "/mcp") {
+        if (req.method !== "POST") return Response.json({ info: "Taint + Receipts MCP server (stateless JSON-RPC 2.0 over HTTP POST). Shared sandbox demo graph; synthetic data.", tools: Object.keys(TOOLS) });
+        const msg = await req.json().catch(() => ({}));
+        const out = Array.isArray(msg) ? (await Promise.all(msg.map(m => rpc(db, G, m)))).filter(Boolean) : await rpc(db, G, msg);
+        return out ? Response.json(out) : new Response(null, { status: 202 });
+      }
       const name = url.pathname.slice(5);
       if (req.method === "GET" && name === "graph") {
         if ((await db.query(G, "MATCH (n) RETURN count(n)").catch(() => [[0]]))[0][0] == 0) await seed(db);
@@ -65,7 +65,7 @@ export default {
       }
       const f = A[name]; if (!f || req.method !== "POST") return Response.json({ error: "not found" }, { status: 404 });
       const body = await req.json().catch(() => ({}));
-      const result = await f(db, body);
+      const result = await f(db, body, env);
       return Response.json({ result, graph: await snapshot(db) });
     } catch (e) { return Response.json({ error: String(e.message || e) }, { status: 500 }); }
     finally { db.close(); }

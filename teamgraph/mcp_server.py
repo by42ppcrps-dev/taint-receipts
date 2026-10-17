@@ -31,7 +31,9 @@ def create_task(id: str, title: str, owner: str) -> str:
 @mcp.tool()
 def hand_off(from_agent: str, to_agent: str, task: str, note: str) -> str:
     """Move task ownership and record the handoff note."""
-    tg.agent(to_agent); return tg.handoff(from_agent, to_agent, task, note)
+    tg.agent(to_agent)
+    try: return tg.handoff(from_agent, to_agent, task, note)
+    except ValueError as e: return f"refused: {e}"   # the reason reaches the agent, so it can change course
 @mcp.tool()
 def record_decision(agent: str, what: str, why: str, sources: list[str] = [], task: str = "", supersedes: str = "") -> str:
     return tg.decide(agent, what, why, sources, task, supersedes)
