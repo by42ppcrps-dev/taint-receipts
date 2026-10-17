@@ -4,6 +4,7 @@
 // Gemini errors, the agent REPLAYS a recorded Gemini run: the same tool calls, executed live against the graph,
 // and clearly labelled as a replay in the response and the UI.
 import { rpc } from "./tools.js";
+import { run } from "./cypher.js";
 import P from "./prompts.json";
 import REC from "./recorded.json";
 const ROLES = { Scout: "research", Quill: "copywriting", Reel: "video and captions", Lens: "QA" };
@@ -15,7 +16,7 @@ const MAX_CALLS = 30;
 // Prompt-injection guard: the public correction text is untrusted, so the agent may only correct a claim to a value
 // that literally appears in one of that claim's cited sources (a correction needs a receipt too).
 export async function needsReceipt(db, G, a) {
-  const rows = await db.query(G, "MATCH (c:Claim {id:$id})-[:CITES]->(s:Source) RETURN s.text", { id: String(a.claim || "") });
+  const rows = await run(db, G, "claim_sources", { id: String(a.claim || "") });
   const nums = rows.flatMap(r => String(r[0] || "").match(/\d+(?:\.\d+)?/g) || []);
   return nums.includes(String(a.value).trim()) ? null : { error: `refused: no cited source for claim ${a.claim} contains the value ${a.value}` };
 }
@@ -36,7 +37,7 @@ async function call(db, G, name, args) {
   return r.isError ? { error: r.content[0].text } : r.structuredContent.result;
 }
 async function budget(db) {
-  const r = await db.query(META, "MERGE (b:Budget {id:'llm'}) ON CREATE SET b.usd=0.0, b.runs=0, b.last=0 RETURN b.usd, b.runs, b.last");
+  const r = await run(db, META, "budget_get");
   return { usd: Number(r[0][0]), runs: Number(r[0][1]), last: Number(r[0][2]) };
 }
 export async function runAgent(db, G, env, mode, who) {
@@ -52,7 +53,7 @@ async function replay(db, G, mode, who, why) {
   return { mode, live: false, replay_reason: why, model: REC.model, summary: rec.summary, trace, usage: null };
 }
 async function liveRun(db, G, env, mode, who) {
-  await db.query(META, "MATCH (b:Budget {id:'llm'}) SET b.last=$t, b.runs=b.runs+1", { t: Date.now() / 1000 });
+  await run(db, META, "budget_start", { t: Date.now() / 1000 });
   const model = env.GEMINI_MODEL || P.model;
   const prompt = mode === "recall" ? P.recall.replace("{correction}", String(who || "Support says battery life is 3.5 hours, not 35").replace(/["\r\n]/g, " ").slice(0, 300))
     : P.session.replaceAll("{agent}", who).replaceAll("{role}", ROLES[who] || "team");
@@ -80,7 +81,7 @@ async function liveRun(db, G, env, mode, who) {
       contents.push({ role: "user", parts });
     }
   } finally {
-    await db.query(META, "MATCH (b:Budget {id:'llm'}) SET b.usd=b.usd+$u", { u: usage.in * PRICE_IN + usage.out * PRICE_OUT });
+    await run(db, META, "budget_add", { u: usage.in * PRICE_IN + usage.out * PRICE_OUT });
   }
   return { mode, live: true, model, summary, trace, usage: { ...usage, usd: Math.round((usage.in * PRICE_IN + usage.out * PRICE_OUT) * 1e5) / 1e5 } };
 }

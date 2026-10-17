@@ -1,13 +1,13 @@
 import { Falkor } from "./falkor.js";
-import { Q } from "./queries.js";
+import { run } from "./cypher.js";
 import { TOOLS, rpc, receipts } from "./tools.js";
 import { runAgent } from "./agent.js";
 // Public demo sandbox graph (synthetic, shared, reset often). Override with the DEMO_GRAPH var; never point it at agent memory.
 let G = "taint_demo";
 const NUM = /\d+(?:\.\d+)?/g;
 async function seed(db) {
-  const q = (k, p) => db.query(G, Q[k], p), now = Date.now() / 1000;
-  await db.query(G, "MATCH (n) DETACH DELETE n");
+  const q = (k, p) => run(db, G, k, p), now = Date.now() / 1000;
+  await run(db, G, "wipe");
   for (const [name, role] of [["Scout","researcher"],["Quill","writer"],["Reel","video"],["Lens","QA"]]) await q("agent", { name, role });
   await q("source", { id: "spec", title: "Acme Notes spec sheet (synthetic)", text: "Battery life: 3.5 hours of recording. Price: $29 per month. Supports 12 languages." });
   await q("source", { id: "pricing", title: "Pricing page v2 (synthetic)", text: "Starter plan $29/month. Pro plan $59/month." });
@@ -28,8 +28,8 @@ async function seed(db) {
   return { ok: 1 };
 }
 async function snapshot(db) {
-  return { nodes: (await db.query(G, Q.nodes)).map(r => ({ id: r[0], label: r[1], name: r[2], status: r[3], key: r[4] })),
-           edges: (await db.query(G, Q.edges)).map(r => ({ source: r[0], target: r[1], type: r[2] })) };
+  return { nodes: (await run(db, G, "nodes")).map(r => ({ id: r[0], label: r[1], name: r[2], status: r[3], key: r[4] })),
+           edges: (await run(db, G, "edges")).map(r => ({ source: r[0], target: r[1], type: r[2] })) };
 }
 const T = (name, args) => async (db, b) => TOOLS[name].f(db, G, args ? args(b) : b);
 const A = {
@@ -53,7 +53,7 @@ export const PUBLIC_MCP = ["claim_risk", "chokepoints", "recall_plan", "why_shor
 const WRITES = new Set(["reset", "receipts", "correct", "requeue", "agent", "session"]);
 async function limited(env, binding, key) { try { return env[binding] ? !(await env[binding].limit({ key })).success : false; } catch { return false; } }
 async function cooldown(db, key, secs) {  // global cooldown kept in the meta graph (Reset never touches it)
-  const t = Date.now() / 1000, r = await db.query("taint_meta", "MERGE (c:Cooldown {id:$k}) ON CREATE SET c.t=0 WITH c, c.t AS prev SET c.t = CASE WHEN $t - prev > $s THEN $t ELSE prev END RETURN prev", { k: key, t, s: secs });
+  const t = Date.now() / 1000, r = await run(db, "taint_meta", "cooldown", { k: key, t, s: secs });
   return t - Number(r[0][0]) <= secs;
 }
 async function readBody(req) {
@@ -95,7 +95,7 @@ export default {
         return J(Array.isArray(body) ? out : out[0]);
       }
       if (req.method === "GET" && name === "graph") {
-        if ((await db.query(G, "MATCH (n) RETURN count(n)").catch(() => [[0]]))[0][0] == 0) await seed(db);
+        if ((await run(db, G, "count_all").catch(() => [[0]]))[0][0] == 0) await seed(db);
         return J(await snapshot(db));
       }
       const f = A[name]; if (!f || req.method !== "POST") return J({ error: "not found" }, 404);

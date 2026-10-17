@@ -1,0 +1,47 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: ruff check teamgraph tests worker/scripts && ruff format --check teamgraph tests worker/scripts
+      - name: Type-check (mypy --strict)
+        run: mypy
+      - name: Generated Worker queries are in sync with teamgraph/
+        run: python worker/gen_queries.py && git diff --exit-code worker/src/queries.js worker/src/prompts.json
+      - name: Tests (embedded FalkorDB + real MCP stdio)
+        run: pytest -q
+      - name: Dependency audit (pip-audit)
+        run: pip-audit --skip-editable
+  worker:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: worker } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm ci
+      - name: Tests (RESP, invariants, security, page script)
+        run: npm test
+      - name: Dependency audit (npm audit)
+        run: npm audit --audit-level=moderate
+      - name: Bundle check
+        run: npx wrangler deploy --dry-run --outdir /tmp/wdry
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Secret scan over full git history (gitleaks)
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks git --redact -v .

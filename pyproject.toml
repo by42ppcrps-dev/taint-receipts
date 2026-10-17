@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taint-receipts"
+version = "2.0.0"
+requires-python = ">=3.11"
+dependencies = ["falkordb", "falkordblite", "mcp[cli]", "pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy", "pip-audit"]
+
+[tool.ruff]
+line-length = 160
+target-version = "py311"
+extend-exclude = ["video", "worker/node_modules"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "S", "BLE", "A", "C4", "SIM", "PL", "UP", "RUF", "T20"]
+ignore = [
+  "PLR2004",  # magic numbers in tests/benchmarks
+  "PLR0913",  # MCP tool signatures mirror their schema
+  "PLR0917",  # same: tool/model signatures mirror the MCP schema
+  "A002",     # `id`, `object` are public MCP argument names
+  "PLR0911",  # guard() is a flat list of early returns
+  "E501",     # Cypher strings and one-line dict comprehensions; formatter handles code width
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S108", "PLC0415", "T201"]
+"worker/scripts/*" = ["T201", "E402", "PLC0415"]
+"teamgraph/agent.py" = ["T201", "PLC0415", "S310"]  # S310: urlopen of a fixed https Gemini URL
+"teamgraph/graph.py" = ["PLC0415"]   # lazy imports pick the FalkorDB client at runtime
+"teamgraph/taint.py" = ["RUF001"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["teamgraph"]
+
+[[tool.mypy.overrides]]
+module = ["falkordb.*", "redislite.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["teamgraph"]
+
+[tool.setuptools.package-data]
+teamgraph = ["prompts.json"]

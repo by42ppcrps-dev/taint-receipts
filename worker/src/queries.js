@@ -17,7 +17,10 @@ export const Q = {
  "why_shortest": "MATCH (x:Artifact {id:$id}), (c:Claim) WHERE c.status IN ['corrected','refuted']\n   WITH x, c, shortestPath((x)-[:DERIVED_FROM*1..10]->(c)) AS p WHERE p IS NOT NULL\n   OPTIONAL MATCH (c)-[r:CITES]->(s:Source)\n   RETURN [n IN nodes(p) | coalesce(n.title, n.text)], [n IN nodes(p) | n.id], c.reason, s.title, r.quote, length(p) ORDER BY length(p)",
  "trust": "MATCH (a:Agent) OPTIONAL MATCH (a)-[:ASSERTED]->(c:Claim)\n   WITH a, count(c) AS total, sum(CASE WHEN c.status IN ['refuted','corrected'] THEN 1 ELSE 0 END) AS bad\n   RETURN a.name, total, bad, CASE WHEN total=0 THEN null ELSE toFloat(total-bad)/total END AS trust ORDER BY trust DESC",
  "nodes": "MATCH (n) RETURN id(n), labels(n)[0], coalesce(n.title, n.text, n.name, n.id), coalesce(n.status,''), coalesce(n.id, n.name)",
- "edges": "MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r)"
+ "edges": "MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r)",
+ "wipe": "MATCH (n) DETACH DELETE n",
+ "refuted_ids": "MATCH (c:Claim {status:'refuted'}) RETURN c.id",
+ "cascade_one": "MATCH p=(x:Artifact)-[:DERIVED_FROM*1..10]->(:Claim {id:$id}) SET x.status='tainted'\n   RETURN DISTINCT x.id, length(p)"
 };
 export const M = {
  "episode": "MATCH (a:Agent {name:$agent}) CREATE (e:Episode {id:$id, text:$text, session:$session, ts:$ts})\n   CREATE (a)-[:EXPERIENCED]->(e)\n   WITH e OPTIONAL MATCH (t:Task {id:$task}) FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | CREATE (e)-[:ABOUT]->(t)) RETURN e.id",

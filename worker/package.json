@@ -5,7 +5,7 @@
  "scripts": {
   "dev": "wrangler dev",
   "deploy": "wrangler deploy",
-  "test": "node test/resp.test.js && node test/html-syntax.mjs && esbuild test/security.test.js --bundle --platform=node --format=esm --loader:.json=json --alias:cloudflare:sockets=./test/stub-sockets.js --outfile=/tmp/sec.test.mjs --log-level=warning && node /tmp/sec.test.mjs"
+  "test": "node test/resp.test.js && node test/html-syntax.mjs && node test/invariants.test.mjs && esbuild test/security.test.js --bundle --platform=node --format=esm --loader:.json=json --alias:cloudflare:sockets=./test/stub-sockets.js --outfile=/tmp/sec.test.mjs --log-level=warning && node /tmp/sec.test.mjs"
  },
  "devDependencies": {
   "wrangler": "^4",
