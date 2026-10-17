@@ -20,3 +20,9 @@ video/audio/retake/
 video/qa/
 video/tts-calls.log
 NOTES-checklist-*.md
+video/v2/raw/
+video/v2/st/
+video/v2/node_modules
+video/v2/tts-calls.log
+video/v2/tts.out
+*.egg-info/

@@ -1,0 +1,123 @@
+{
+ "load": 1.501,
+ "reset": 2.508,
+ "correct": 11.509,
+ "why": 19.205,
+ "recallbtn": 24.997,
+ "reset2": 31.687,
+ "agent": 35.083,
+ "agent_steps": [
+  [
+   "check_receipts",
+   44.015
+  ],
+  [
+   "claim_risk",
+   44.628
+  ],
+  [
+   "correct_claim",
+   45.14
+  ],
+  [
+   "recall_plan",
+   45.754
+  ],
+  [
+   "why_shortest",
+   46.267
+  ],
+  [
+   "requeue_tainted",
+   46.782
+  ],
+  [
+   "draft_recall_memo",
+   47.397
+  ],
+  [
+   "draft_recall_memo",
+   47.909
+  ],
+  [
+   "remember_episode",
+   48.525
+  ]
+ ],
+ "agent_tag": "live · gemini-3.5-flash-lite · 21694 tokens · $0.00784",
+ "agent_done": 49.037,
+ "reel": 73.544,
+ "reel_steps": [
+  [
+   "start_session",
+   78.589
+  ],
+  [
+   "complete_task",
+   79.204
+  ],
+  [
+   "complete_task",
+   79.718
+  ],
+  [
+   "hand_off",
+   80.332
+  ],
+  [
+   "remember_episode",
+   80.845
+  ]
+ ],
+ "reel_tag": "live · gemini-3.5-flash-lite · 5550 tokens · $0.0022",
+ "reel_done": 81.357,
+ "quill": 105.863,
+ "quill_steps": [
+  [
+   "start_session",
+   109.23
+  ],
+  [
+   "complete_task",
+   109.844
+  ],
+  [
+   "complete_task",
+   110.359
+  ],
+  [
+   "complete_task",
+   110.974
+  ],
+  [
+   "complete_task",
+   111.486
+  ],
+  [
+   "complete_task",
+   111.998
+  ],
+  [
+   "complete_task",
+   112.612
+  ],
+  [
+   "complete_task",
+   113.125
+  ],
+  [
+   "complete_task",
+   113.74
+  ],
+  [
+   "remember_episode",
+   114.252
+  ]
+ ],
+ "quill_tag": "live · gemini-3.5-flash-lite · 3358 tokens · $0.00163",
+ "quill_done": 114.763,
+ "end": 121.764,
+ "ff_start_epoch": 1792211138.541156,
+ "start_epoch": 1792211139.945,
+ "offset": 1.403843879699707
+}

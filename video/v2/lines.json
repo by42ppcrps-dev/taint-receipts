@@ -1,0 +1,14 @@
+[
+["s01","A research bot read three point five hours as thirty-five."],
+["s02","By the time anyone noticed, it was in a Short, two posts, the landing page, its preview image, and a waitlist email."],
+["s03","Taint plus Receipts keeps every claim, the source quote behind it, and everything shipped on top of it, in one FalkorDB graph."],
+["s04","Then we hand it to an agent. Gemini only sees the world through MCP graph tools. It checks receipts, and uses PageRank to see how load-bearing the bad claim is."],
+["s05","One correction, and FalkorDB walks every derived-from path, up to ten hops."],
+["s06","It plans the recall, most-viewed first, and uses shortest path to show exactly why the Short is wrong, right down to the source line."],
+["s07","Then it re-queues the fixes, and writes each owner a recall memo, stored in the graph."],
+["s08","Next session. Reel starts with no memory but the graph. It finds its tasks and the memo, fixes the video and captions, and hands the script to Quill."],
+["s09","Quill picks up Reel's handoff in its own fresh session. Memory and coordination live in the graph, not the chat."],
+["s10","And the rules are enforced in code. Corrections need a receipt, the public MCP endpoint is read-only, and spend is capped."],
+["s11","At twenty-six thousand nodes and ten hops, the cascade takes under a millisecond."],
+["s12","Taint plus Receipts. One wrong number, every place it reached, fixed biggest audience first."]
+]
