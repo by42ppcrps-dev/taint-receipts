@@ -56,7 +56,7 @@ async function run(a,body){const r=await (await fetch('/api/'+a,{method:'POST',h
  let anim=null;if(a==='correct'){anim={};r.result.forEach(x=>anim[x.title]=x.hops)}
  if(a==='recall'){recallPanel(r.result)}else if(a==='reset'){document.getElementById('recall').style.display='none';document.getElementById('trace').style.display='none'}
  if(a==='agent'||a==='session'){draw(r.graph,null);await showTrace(r.result);document.getElementById('out').textContent=r.result.summary;return}
- draw(r.graph,anim);if(a==='why'&&r.result[0]){const w=r.result.find(x=>x.ids.includes('c-battery'))||r.result[0];hl(w.ids)}if(a==='risk'&&r.result[0])hl([r.result[0].claim]);if(a==='chokepoints')hl(r.result.slice(0,2).map(x=>x.id))document.getElementById('out').textContent=JSON.stringify(r.result,null,1)}
+ draw(r.graph,anim);if(a==='why'&&r.result[0]){const w=r.result.find(x=>x.ids.includes('c-battery'))||r.result[0];hl(w.ids)}if(a==='risk'&&r.result[0])hl([r.result[0].claim]);if(a==='chokepoints')hl(r.result.slice(0,2).map(x=>x.id));document.getElementById('out').textContent=JSON.stringify(r.result,null,1)}
 let KEY={};
 function hl(keys){keys.forEach(k=>{const id=KEY[k];const n=id!=null&&nodes.get(id);if(n)nodes.update({id,borderWidth:5,color:{background:color2(n),border:'#ffd33d'},size:22})})}
 function unhl(){nodes.get().forEach(n=>{if(n.borderWidth)nodes.update({id:n.id,borderWidth:1,color:color2(n),size:14})})}

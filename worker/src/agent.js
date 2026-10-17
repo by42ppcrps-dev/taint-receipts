@@ -12,6 +12,13 @@ const ALLOW = { recall: ["check_receipts", "claim_risk", "chokepoints", "correct
 const PRICE_IN = 0.30e-6, PRICE_OUT = 2.50e-6, META = "taint_meta";
 
 const MAX_CALLS = 30;
+// Prompt-injection guard: the public correction text is untrusted, so the agent may only correct a claim to a value
+// that literally appears in one of that claim's cited sources (a correction needs a receipt too).
+export async function needsReceipt(db, G, a) {
+  const rows = await db.query(G, "MATCH (c:Claim {id:$id})-[:CITES]->(s:Source) RETURN s.text", { id: String(a.claim || "") });
+  const nums = rows.flatMap(r => String(r[0] || "").match(/\d+(?:\.\d+)?/g) || []);
+  return nums.includes(String(a.value).trim()) ? null : { error: `refused: no cited source for claim ${a.claim} contains the value ${a.value}` };
+}
 // Narrow scoping: whatever the model was talked into, it may only use its mode's tools, and act as itself.
 export function guard(mode, who, name, a) {
   if (!ALLOW[mode].includes(name)) return { error: "tool not allowed" };
@@ -66,7 +73,7 @@ async function liveRun(db, G, env, mode, who) {
       const parts = [];
       for (const c of calls) {
         if (trace.length >= MAX_CALLS) throw new Error("tool-call limit");
-        const out = guard(mode, who, c.name, c.args || {}) || await call(db, G, c.name, c.args || {});
+        const out = guard(mode, who, c.name, c.args || {}) || (c.name === "correct_claim" && await needsReceipt(db, G, c.args || {})) || await call(db, G, c.name, c.args || {});
         trace.push({ tool: c.name, args: c.args || {}, result: out });
         parts.push({ functionResponse: { name: c.name, response: out && typeof out === "object" && !Array.isArray(out) ? out : { result: out } } });
       }

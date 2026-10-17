@@ -1,6 +1,6 @@
 // Unit checks for the hardening. Bundled with esbuild (see package.json "test").
 import assert from "node:assert";
-import { guard } from "../src/agent.js";
+import { guard, needsReceipt } from "../src/agent.js";
 import { rpc, TOOLS } from "../src/tools.js";
 import worker, { PUBLIC_MCP } from "../src/index.js";
 import { withParams, lit } from "../src/falkor.js";
@@ -42,4 +42,7 @@ assert.equal(j.error, "internal error"); assert.equal(r.headers.get("x-content-t
 r = await worker.fetch(new Request("https://x.test/api/graph"), { ASSETS: env.ASSETS }); assert.equal(r.status, 503); assert.ok(!(await r.text()).includes("FALKORDB_URL"));
 const rlEnv = { ...env, RL_API: { limit: async () => ({ success: false }) } };
 r = await worker.fetch(new Request("https://x.test/api/graph"), rlEnv); assert.equal(r.status, 429);
+const srcDb = { query: async () => [["Starter plan $29/month. Pro plan $59/month."]] };
+assert.ok((await needsReceipt(srcDb, "g", { claim: "c-price", value: "0" })).error);
+assert.equal(await needsReceipt(srcDb, "g", { claim: "c-price", value: "29" }), null);
 console.log("security ok");
