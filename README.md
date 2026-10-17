@@ -4,6 +4,8 @@
 
 ![Demo: the RecallAgent's tool calls light up the provenance graph](docs/demo.gif)
 
+**▶ Demo video (1:51):** https://youtu.be/Tb0cxya0vOk
+
 > **Try it in 60 seconds:** open **https://taint-receipts.lumegridai.workers.dev**
 > 1. Click **1 · Reset**.
 > 2. Click **2 · Run RecallAgent**. Gemini decides each step and calls graph tools over MCP. Watch every tool call light up the path it followed, then read the recall memo it writes for each owner.
@@ -154,13 +156,14 @@ agents ── MCP stdio (teamgraph/mcp_server.py) ──▶ teamgraph/cypher.py 
 ```
 
 ## Deploy
-See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_URL && npx wrangler deploy`. The only secret is `FALKORDB_URL`; it is never committed.
+See `worker/DEPLOY.md`: `cd worker && npm i && npx wrangler secret put FALKORDB_URL && npx wrangler deploy`. Secrets are `FALKORDB_URL` and `GEMINI_API_KEY` (set with `npx wrangler secret put`); neither is ever committed.
 
 ## Demo video
-- 16:9: https://youtu.be/5tIi7fYVGXE
-- 9:16: https://youtube.com/shorts/ugadWb9bxSA
+**v2 (current, 1:51):** https://youtu.be/Tb0cxya0vOk. The Gemini agent working over MCP, graph algorithms, memory across sessions, and the guardrails, recorded on the live production demo.
 
-The UI clips are real screen recordings of the app running against FalkorDB. The rendered MP4s aren't committed (size). Everything that goes into a render is: `video/rm/src` (Remotion composition, captions, timing marks, durations), `video/rm/public/ui.mp4` (the exact screen recording used), `video/audio/s01.wav`–`s13.wav` (the exact voice segments), `video/lines.json` (the narration text) and `video/RENDER-INPUTS.sha256` (hashes of all of them). See `video/REBUILD.md` for how to re-render from these files byte-for-byte inputs, or to recreate them from scratch.
+The UI clips are real screen recordings of the production demo: live Gemini runs against FalkorDB Cloud, captured by `video/v2/capture-v2.mjs`. Rendered MP4s and the raw capture aren't committed (size). The voice segments (`video/v2/audio/`, Gemini TTS), narration text (`video/v2/lines.json`), captions and timing marks (`video/rm/src/v2/`), and the Remotion composition (`DemoV2`) are committed.
+
+Earlier v1 videos (before the agent, graph algorithms and cross-session memory): [16:9](https://youtu.be/5tIi7fYVGXE), [9:16 Short](https://youtube.com/shorts/ugadWb9bxSA). `video/REBUILD.md` covers re-rendering v1 from its committed inputs.
 
 ## Related work, and how this differs
 This isn't the first system to propagate corrections through derived claims. We checked these on 14 Oct 2026:
